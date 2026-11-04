@@ -6,7 +6,7 @@ import pandas as pd
 import streamlit as st
 
 st.set_page_config(
-    page_title="Dashboard Bluemetrix - Consolidado",
+    page_title="Dashboard Bluemetrix - Controle de Contratos",
     page_icon="📈",
     layout="wide",
 )
@@ -14,10 +14,9 @@ st.set_page_config(
 st.title("📊 Dashboard Bluemetrix - Controle de Contratos")
 
 
-# Função para carregar e processar os dados com segurança
+# Função para carregar e processar os dados com segurança contra colunas duplicadas
 @st.cache_data
 def carregar_dados():
-  # Colunas exatas desejadas do Controle de Contratos
   colunas_desejadas = [
       "Corretora",
       "Cliente",
@@ -32,113 +31,42 @@ def carregar_dados():
   if not os.path.exists(path_contratos):
     path_contratos = "Controle de Contratos - Atualizado 2026.xlsx"
 
+  if not os.path.exists(path_contratos):
+    st.error(
+        f"Arquivo de contratos não encontrado no caminho: {path_contratos}"
+    )
+    return pd.DataFrame()
+
   try:
-    # Lendo ignorando a primeira linha (header=1)
     df_btg = pd.read_excel(path_contratos, sheet_name="BTG", header=1)
     df_xp = pd.read_excel(path_contratos, sheet_name="XP", header=1)
 
     df_btg["Corretora"] = "BTG"
     df_xp["Corretora"] = "XP"
 
-    # Filtrando apenas as colunas que existem na planilha para evitar erros
-    cols_btg_existentes = [
-        c for c in colunas_desejadas if c in df_btg.columns
-    ] + [
-        c
-        for c in df_btg.columns
-        if "/" in str(c) or pd.api.types.is_numeric_dtype(df_btg[c])
-    ]
-    cols_xp_existentes = [c for c in colunas_desejadas if c in df_xp.columns] + [
-        c
-        for c in df_xp.columns
-        if "/" in str(c) or pd.api.types.is_numeric_dtype(df_xp[c])
-    ]
+    # Remove colunas duplicadas do DataFrame para evitar erro de reindexação
+    df_btg = df_btg.loc[:, ~df_btg.columns.duplicated()]
+    df_xp = df_xp.loc[:, ~df_xp.columns.duplicated()]
 
-    df_btg = df_btg[cols_btg_existentes]
-    df_xp = df_xp[cols_xp_existentes]
+    # Seleciona apenas as colunas desejadas que realmente existem na planilha
+    cols_btg = [c for c in colunas_desejadas if c in df_btg.columns]
+    cols_xp = [c for c in colunas_desejadas if c in df_xp.columns]
 
-    contratos_geral = pd.concat([df_btg, df_xp], ignore_index=True)
-  except Exception as e:
-    st.error(f"Erro ao ler o Controle de Contratos: {e}")
-    return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+    df_btg_filtrado = df_btg[cols_btg].copy()
+    df_xp_filtrado = df_xp[cols_xp].copy()
 
-  # Normalizando as contas para string (removendo .0)
-  if "Conta" in contratos_geral.columns:
-    contratos_geral["Conta_Str"] = (
-        contratos_geral["Conta"]
-        .astype(str)
-        .str.replace(r"\.0$", "", regex=True)
-        .str.strip()
+    contratos_geral = pd.concat(
+        [df_btg_filtrado, df_xp_filtrado], ignore_index=True
     )
+    return contratos_geral
 
-  # Leitura e Filtro de Match da Posição BTG
-  path_pos_btg = (
-      "data/Posição.xlsx" if os.path.exists("data/Posição.xlsx") else "Posição.xlsx"
-  )
-  btg_pos = pd.DataFrame()
-  try:
-    if os.path.exists(path_pos_btg):
-      df_pos_btg_raw = pd.read_excel(path_pos_btg, sheet_name="Export")
-      if "Conta" in df_pos_btg_raw.columns and "Conta_Str" in contratos_geral.columns:
-        df_pos_btg_raw["Conta_Str"] = (
-            df_pos_btg_raw["Conta"]
-            .astype(str)
-            .str.replace(r"\.0$", "", regex=True)
-            .str.strip()
-        )
-        contas_validas_btg = set(
-            contratos_geral[contratos_geral["Corretora"] == "BTG"][
-                "Conta_Str"
-            ].dropna()
-        )
-        btg_pos = df_pos_btg_raw[
-            df_pos_btg_raw["Conta_Str"].isin(contas_validas_btg)
-        ].copy()
   except Exception as e:
-    st.warning(f"Aviso ao ler Posição BTG: {e}")
-
-  # Leitura e Filtro de Match da XP Financeiro
-  arquivos_xp = glob.glob("data/relatorio_posicoes_consolidada*.xlsx") + glob.glob(
-      "relatorio_posicoes_consolidada*.xlsx"
-  )
-  xp_fin = pd.DataFrame()
-  if arquivos_xp:
-    arquivo_xp_recente = max(arquivos_xp, key=os.path.getmtime)
-    try:
-      xls_xp = pd.ExcelFile(arquivo_xp_recente)
-      if "Financeiro" in xls_xp.sheet_names:
-        df_xp_fin_raw = pd.read_excel(xls_xp, sheet_name="Financeiro")
-        col_conta_xp = (
-            "CodigoCliente"
-            if "CodigoCliente" in df_xp_fin_raw.columns
-            else "Conta"
-        )
-        if (
-            col_conta_xp in df_xp_fin_raw.columns
-            and "Conta_Str" in contratos_geral.columns
-        ):
-          df_xp_fin_raw["Conta_Str"] = (
-              df_xp_fin_raw[col_conta_xp]
-              .astype(str)
-              .str.replace(r"\.0$", "", regex=True)
-              .str.strip()
-          )
-          contas_validas_xp = set(
-              contratos_geral[contratos_geral["Corretora"] == "XP"][
-                  "Conta_Str"
-              ].dropna()
-          )
-          xp_fin = df_xp_fin_raw[
-              df_xp_fin_raw["Conta_Str"].isin(contas_validas_xp)
-          ].copy()
-    except Exception as e:
-      st.warning(f"Aviso ao ler o relatório da XP: {e}")
-
-  return contratos_geral, xp_fin, btg_pos
+    st.error(f"Erro ao processar o arquivo Excel de Contratos: {e}")
+    return pd.DataFrame()
 
 
 # Carregando os dados
-contratos_df, xp_fin_df, btg_pos_df = carregar_dados()
+contratos_df = carregar_dados()
 
 if not contratos_df.empty:
   # ==========================================
@@ -152,7 +80,6 @@ if not contratos_df.empty:
 
     df_btg_view = contratos_df[contratos_df["Corretora"] == "BTG"].copy()
 
-    # Filtro lateral específico ou geral para BTG
     if "Carteira" in df_btg_view.columns:
       carteiras_btg = ["Todas"] + sorted(
           [str(c) for c in df_btg_view["Carteira"].dropna().unique()]
@@ -193,8 +120,9 @@ if not contratos_df.empty:
 
 else:
   st.warning(
-      "Nenhum dado encontrado. Verifique se os arquivos Excel estão na pasta"
-      " correta."
+      "Nenhum dado foi carregado. Verifique se o arquivo 'Controle de"
+      " Contratos - Atualizado 2026.xlsx' está dentro da pasta 'data/' no"
+      " GitHub."
   )
 
 
