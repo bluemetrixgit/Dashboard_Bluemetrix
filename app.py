@@ -14,7 +14,7 @@ st.set_page_config(
 st.title("📊 Dashboard Bluemetrix - Controle de Contratos")
 
 
-@st.cache_data
+# REMOVIDO o @st.cache_data para que ele leia sempre do GitHub em tempo real
 def carregar_dados():
   colunas_desejadas = [
       "Corretora",
@@ -82,8 +82,6 @@ def carregar_dados():
       df_pos_btg = pd.read_excel(
           path_pos_btg, sheet_name="Export", engine="openpyxl"
       )
-
-      # Padronizar nomes das colunas da posição para evitar erros de maiúsculas/minúsculas
       df_pos_btg.columns = [str(c).strip() for c in df_pos_btg.columns]
 
       if "Conta" in df_pos_btg.columns:
@@ -93,6 +91,15 @@ def carregar_dados():
             .str.replace(r"\.0$", "", regex=True)
             .str.strip()
         )
+
+        contas_validas_btg = set(
+            contratos_geral[contratos_geral["Corretora"] == "BTG"][
+                "Conta_Str"
+            ].dropna()
+        )
+        df_pos_btg = df_pos_btg[
+            df_pos_btg["Conta_Str"].isin(contas_validas_btg)
+        ].copy()
 
         if not df_pos_btg.empty and "Mercado" in df_pos_btg.columns:
 
@@ -108,7 +115,6 @@ def carregar_dados():
               define_coluna_posicao, axis=1
           )
 
-          # Converter 'Valor Bruto' para numérico
           col_vb = (
               "Valor Bruto"
               if "Valor Bruto" in df_pos_btg.columns
@@ -125,7 +131,6 @@ def carregar_dados():
           else:
             df_pos_btg["Valor Bruto"] = 0
 
-          # Criando a pivot table agrupando por Conta e pelas colunas dinâmicas (Valor Bruto)
           btg_pos_pivot = df_pos_btg.pivot_table(
               index="Conta_Str",
               columns="Coluna_Dinamica",
@@ -139,6 +144,7 @@ def carregar_dados():
   return contratos_geral, btg_pos_pivot
 
 
+# Carregando os dados em tempo real
 contratos_df, btg_pos_pivot = carregar_dados()
 
 if not contratos_df.empty:
@@ -150,7 +156,6 @@ if not contratos_df.empty:
 
     df_btg_view = contratos_df[contratos_df["Corretora"] == "BTG"].copy()
 
-    # Fazendo o merge (left join) para trazer as colunas dinâmicas de Valor Bruto baseadas na conta
     if not btg_pos_pivot.empty:
       df_btg_view = pd.merge(
           df_btg_view, btg_pos_pivot, on="Conta_Str", how="left"
