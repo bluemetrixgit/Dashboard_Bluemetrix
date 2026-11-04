@@ -14,7 +14,7 @@ st.set_page_config(
 st.title("📊 Dashboard Bluemetrix - Controle de Contratos")
 
 
-# Função para carregar e processar os dados
+# Função para carregar e processar os dados com segurança blindada
 @st.cache_data
 def carregar_dados():
   colunas_desejadas = [
@@ -61,7 +61,6 @@ def carregar_dados():
         [df_btg_filtrado, df_xp_filtrado], ignore_index=True
     )
 
-    # Normalizando a conta no contrato
     if "Conta" in contratos_geral.columns:
       contratos_geral["Conta_Str"] = (
           contratos_geral["Conta"]
@@ -70,7 +69,10 @@ def carregar_dados():
           .str.strip()
       )
   except Exception as e:
-    st.error(f"Erro ao processar o arquivo Excel de Contratos: {e}")
+    st.error(
+        f"Erro ao processar o arquivo Excel de Contratos (Verifique se o arquivo"
+        f" está corrompido no GitHub): {e}"
+    )
     return pd.DataFrame(), pd.DataFrame()
 
   # Leitura e processamento da Posição BTG
@@ -92,7 +94,6 @@ def carregar_dados():
             .str.strip()
         )
 
-        # Filtro de match com as contas BTG do contrato
         contas_validas_btg = set(
             contratos_geral[contratos_geral["Corretora"] == "BTG"][
                 "Conta_Str"
@@ -103,21 +104,19 @@ def carregar_dados():
         ].copy()
 
         if not df_pos_btg.empty and "Mercado" in df_pos_btg.columns:
-          # Aplicação da Regra solicitada:
-          # Se Mercado == "Renda Fixa" -> usa "Produto", senão se "Renda Variável" -> usa "Sub Mercado"
+
           def define_coluna_posicao(row):
-            mercado = str(row.get("Mercado", "")).strip()
-            if mercado.lower() == "renda fixa":
+            mercado = str(row.get("Mercado", "")).strip().lower()
+            if "renda fixa" in mercado:
               return str(row.get("Produto", "Outros"))
-            elif mercado.lower() == "renda variável":
+            elif "renda variável" in mercado or "renda variavel" in mercado:
               return str(row.get("Sub Mercado", "Outros"))
-            return f"{mercado} - Outros"
+            return f"{row.get('Mercado', 'Outros')} - Outros"
 
           df_pos_btg["Coluna_Dinamica"] = df_pos_btg.apply(
               define_coluna_posicao, axis=1
           )
 
-          # Garantir que Valor Bruto seja numérico
           if "Valor Bruto" in df_pos_btg.columns:
             df_pos_btg["Valor Bruto"] = pd.to_numeric(
                 df_pos_btg["Valor Bruto"], errors="coerce"
@@ -125,7 +124,6 @@ def carregar_dados():
           else:
             df_pos_btg["Valor Bruto"] = 0
 
-          # Criando a tabela dinâmica (pivot table) por Conta_Str para virar colunas
           btg_pos_pivot = df_pos_btg.pivot_table(
               index="Conta_Str",
               columns="Coluna_Dinamica",
@@ -143,9 +141,6 @@ def carregar_dados():
 contratos_df, btg_pos_pivot = carregar_dados()
 
 if not contratos_df.empty:
-  # ==========================================
-  # CRIAÇÃO DAS ABAS: BTG e XP
-  # ==========================================
   aba_btg, aba_xp = st.tabs(["BTG", "XP"])
 
   # --- ABA BTG ---
@@ -154,12 +149,10 @@ if not contratos_df.empty:
 
     df_btg_view = contratos_df[contratos_df["Corretora"] == "BTG"].copy()
 
-    # Fazendo o merge (left join) do controle de contratos com a tabela dinâmica de posições do BTG
     if not btg_pos_pivot.empty:
       df_btg_view = pd.merge(
           df_btg_view, btg_pos_pivot, on="Conta_Str", how="left"
       )
-      # Preenche valores NaN de posições sem saldo com 0
       colunas_pos_criadas = [
           c for c in btg_pos_pivot.columns if c != "Conta_Str"
       ]
@@ -206,8 +199,9 @@ if not contratos_df.empty:
     st.dataframe(df_xp_view, use_container_width=True)
 
 else:
-  st.warning("Nenhum dado foi carregado. Verifique os arquivos na pasta data/.")
-
+  st.warning(
+      "Aguardando arquivos válidos na pasta data/ para carregar o dashboard."
+  )
 
 
 
