@@ -14,8 +14,7 @@ st.set_page_config(
 st.title("📊 Dashboard Bluemetrix - Controle de Contratos")
 
 
-# Função com cache otimizado para carregar e cruzar os dados com segurança
-@st.cache_data(ttl=60)
+# Função SEM cache - Lê os arquivos diretamente a cada execução
 def carregar_dados():
   colunas_desejadas = [
       "Corretora",
@@ -137,6 +136,7 @@ def carregar_dados():
   return contratos_geral, btg_pos_pivot
 
 
+# Carregando os dados diretamente
 contratos_df, btg_pos_pivot = carregar_dados()
 
 if not contratos_df.empty:
