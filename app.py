@@ -1,6 +1,7 @@
+import glob
+import os
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
-import os
 import pandas as pd
 import streamlit as st
 
@@ -11,49 +12,64 @@ st.set_page_config(
 st.title("📊 Dashboard Bluemetrix - Consolidado")
 
 
-# Função para carregar e processar os dados diretamente dos Excel (com cache)
+# Função para carregar e processar os dados com segurança contra arquivos corrompidos
 @st.cache_data
 def carregar_dados():
+  contratos_geral = pd.DataFrame()
+  xp_fin = pd.DataFrame()
+  btg_pos = pd.DataFrame()
+
+  # 1. Leitura do Controle de Contratos
+  path_contratos = "data/Controle de Contratos - Atualizado 2026.xlsx"
+  if not os.path.exists(path_contratos):
+    # Tenta na raiz se não estiver na pasta data
+    path_contratos = "Controle de Contratos - Atualizado 2026.xlsx"
+
   try:
-    path_contratos = "data/Controle de Contratos - Atualizado 2026.xlsx"
     df_btg_contratos = pd.read_excel(path_contratos, sheet_name="BTG", header=1)
     df_xp_contratos = pd.read_excel(path_contratos, sheet_name="XP", header=1)
 
     df_btg_contratos["Corretora"] = "BTG"
     df_xp_contratos["Corretora"] = "XP"
-
-    # Unifica os contratos das duas corretoras
     contratos_geral = pd.concat(
         [df_btg_contratos, df_xp_contratos], ignore_index=True
     )
-
-    path_pos_btg = "data/Posição.xlsx"
-    path_pos_xp = "data/relatorio_posicoes_consolidada.xlsx"
-
-    btg_pos = (
-        pd.read_excel(path_pos_btg, sheet_name="Export")
-        if os.path.exists(path_pos_btg)
-        else pd.DataFrame()
-    )
-
-    xls_xp = pd.ExcelFile(path_pos_xp) if os.path.exists(path_pos_xp) else None
-    xp_fin = (
-        pd.read_excel(xls_xp, sheet_name="Financeiro")
-        if xls_xp and "Financeiro" in xls_xp.sheet_names
-        else pd.DataFrame()
-    )
-
-    return contratos_geral, xp_fin, btg_pos
-
   except Exception as e:
-    st.error(f"Erro ao carregar os arquivos Excel: {e}")
-    return None, None, None
+    st.error(f"Erro ao ler o Controle de Contratos: {e}")
+
+  # 2. Leitura da Posição BTG
+  path_pos_btg = (
+      "data/Posição.xlsx" if os.path.exists("data/Posição.xlsx") else "Posição.xlsx"
+  )
+  try:
+    if os.path.exists(path_pos_btg):
+      btg_pos = pd.read_excel(path_pos_btg, sheet_name="Export")
+  except Exception as e:
+    st.warning(f"Aviso ao ler Posição BTG: {e}")
+
+  # 3. Leitura do Relatório XP (Busca dinâmica para evitar erro de arquivo não encontrado ou corrompido)
+  arquivos_xp = glob.glob("data/relatorio_posicoes_consolidada*.xlsx") + glob.glob(
+      "relatorio_posicoes_consolidada*.xlsx"
+  )
+  if arquivos_xp:
+    arquivo_xp_recente = max(arquivos_xp, key=os.path.getmtime)
+    try:
+      xls_xp = pd.ExcelFile(arquivo_xp_recente)
+      if "Financeiro" in xls_xp.sheet_names:
+        xp_fin = pd.read_excel(xls_xp, sheet_name="Financeiro")
+    except Exception as e:
+      st.warning(
+          f"Aviso: O relatório da XP ({arquivo_xp_recente}) parece estar"
+          f" corrompido ou inválido. Detalhe: {e}"
+      )
+
+  return contratos_geral, xp_fin, btg_pos
 
 
 # Carregando os dados
 contratos_df, xp_fin_df, btg_pos_df = carregar_dados()
 
-if contratos_df is not None:
+if not contratos_df.empty:
   # ==========================================
   # FILTROS LATERAIS (CORRETORA E CARTEIRA)
   # ==========================================
@@ -90,14 +106,12 @@ if contratos_df is not None:
   todas_colunas = list(contratos_filtrados.columns)
   if "31/01/2023" in todas_colunas:
     idx_inicio = todas_colunas.index("31/01/2023")
-    # Pega da coluna "31/01/2023" em diante que sejam numéricas
     colunas_meses = [
         col
         for col in todas_colunas[idx_inicio:]
         if pd.api.types.is_numeric_dtype(contratos_filtrados[col])
     ]
   else:
-    # Fallback caso a data exata não exista
     colunas_excluir = [
         "Conta",
         "Cliente",
@@ -182,7 +196,6 @@ if contratos_df is not None:
 
         # Ajustando o eixo Y para saltos de 100.000.000,00 (100 milhões)
         ax.yaxis.set_major_locator(ticker.MultipleLocator(100_000_000))
-        # Formatando os valores do eixo Y para milhões/bilhões de forma limpa ou padrão moeda
         ax.yaxis.set_major_formatter(
             ticker.FuncFormatter(lambda x, p: f"R$ {x*1e-6:.0f}M")
         )
@@ -214,7 +227,11 @@ if contratos_df is not None:
       st.warning(
           "Não foi possível identificar colunas mensais a partir de 31/01/2023."
       )
-
+else:
+  st.warning(
+      "Nenhum dado de contratos foi carregado. Verifique se os arquivos Excel"
+      " estão corretos na pasta."
+  )
 
 
 
