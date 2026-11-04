@@ -1,4 +1,3 @@
-import glob
 import os
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
@@ -12,14 +11,31 @@ st.set_page_config(
 st.title("📊 Dashboard Bluemetrix - Consolidado")
 
 
-# Função para carregar, processar e filtrar os dados com segurança
+# Função para limpar e converter os valores financeiros com segurança
+def limpar_e_converter(df, colunas_alvo):
+  df_copia = df.copy()
+  for col in colunas_alvo:
+    if col in df_copia.columns:
+      # Se for do tipo object (texto), limpa símbolos e ajusta formato brasileiro para padrão float
+      if df_copia[col].dtype == object:
+        df_copia[col] = (
+            df_copia[col]
+            .astype(str)
+            .str.replace("R$", "", regex=False)
+            .str.replace(" ", "", regex=False)
+            .str.replace(".", "", regex=False)
+            .str.replace(",", ".", regex=False)
+        )
+      df_copia[col] = pd.to_numeric(df_copia[col], errors="coerce").fillna(0)
+  return df_copia
+
+
 @st.cache_data
 def carregar_dados():
   contratos_geral = pd.DataFrame()
   xp_fin = pd.DataFrame()
   btg_pos = pd.DataFrame()
 
-  # 1. Leitura do Controle de Contratos
   path_contratos = "data/Controle de Contratos - Atualizado 2026.xlsx"
   if not os.path.exists(path_contratos):
     path_contratos = "Controle de Contratos - Atualizado 2026.xlsx"
@@ -30,13 +46,31 @@ def carregar_dados():
 
     df_btg_contratos["Corretora"] = "BTG"
     df_xp_contratos["Corretora"] = "XP"
+
+    # Identifica estritamente as colunas que são datas (contêm '/' no nome) a partir de 31/01/2023
+    def obter_colunas_datas(df):
+      cols = list(df.columns)
+      if "31/01/2023" in cols:
+        idx = cols.index("31/01/2023")
+        # Pega todas as colunas a partir de 31/01/2023 que possuem '/' no nome (formato de data DD/MM/AAAA)
+        return [c for c in cols[idx:] if "/" in str(c)]
+      return []
+
+    col_datas_btg = obter_colunas_datas(df_btg_contratos)
+    col_datas_xp = obter_colunas_datas(df_xp_contratos)
+
+    # Limpa e converte os valores monetários dessas colunas de data em ambos os dataframes
+    df_btg_contratos = limpar_e_converter(df_btg_contratos, col_datas_btg)
+    df_xp_contratos = limpar_e_converter(df_xp_contratos, col_datas_xp)
+
     contratos_geral = pd.concat(
         [df_btg_contratos, df_xp_contratos], ignore_index=True
     )
+
   except Exception as e:
     st.error(f"Erro ao ler o Controle de Contratos: {e}")
 
-  # Normalizando as contas do contrato para string (removendo ponto decimal se houver)
+  # Normalizando as contas
   if "Conta" in contratos_geral.columns:
     contratos_geral["Conta_Str"] = (
         contratos_geral["Conta"]
@@ -45,7 +79,7 @@ def carregar_dados():
         .str.strip()
     )
 
-  # 2. Leitura da Posição BTG e Filtro por Match de Contas
+  # Leitura de Posição BTG
   path_pos_btg = (
       "data/Posição.xlsx" if os.path.exists("data/Posição.xlsx") else "Posição.xlsx"
   )
@@ -64,7 +98,6 @@ def carregar_dados():
                 "Conta_Str"
             ].dropna()
         )
-        # Mantém apenas as contas que possuem match no controle de contratos
         btg_pos = df_pos_btg_raw[
             df_pos_btg_raw["Conta_Str"].isin(contas_validas_btg)
         ].copy()
@@ -73,7 +106,7 @@ def carregar_dados():
   except Exception as e:
     st.warning(f"Aviso ao ler Posição BTG: {e}")
 
-  # 3. Leitura do Relatório XP e Filtro por Match de Contas
+  # Leitura de XP Financeiro
   arquivos_xp = glob.glob("data/relatorio_posicoes_consolidada*.xlsx") + glob.glob(
       "relatorio_posicoes_consolidada*.xlsx"
   )
@@ -83,7 +116,6 @@ def carregar_dados():
       xls_xp = pd.ExcelFile(arquivo_xp_recente)
       if "Financeiro" in xls_xp.sheet_names:
         df_xp_fin_raw = pd.read_excel(xls_xp, sheet_name="Financeiro")
-        # Identifica a coluna de conta na XP (geralmente CodigoCliente ou Conta)
         col_conta_xp = (
             "CodigoCliente"
             if "CodigoCliente" in df_xp_fin_raw.columns
@@ -104,7 +136,6 @@ def carregar_dados():
                   "Conta_Str"
               ].dropna()
           )
-          # Mantém apenas as contas que possuem match
           xp_fin = df_xp_fin_raw[
               df_xp_fin_raw["Conta_Str"].isin(contas_validas_xp)
           ].copy()
@@ -116,7 +147,9 @@ def carregar_dados():
   return contratos_geral, xp_fin, btg_pos
 
 
-# Carregando os dados filtrados
+import glob
+
+# Carregando os dados corrigidos
 contratos_df, xp_fin_df, btg_pos_df = carregar_dados()
 
 if not contratos_df.empty:
@@ -125,7 +158,6 @@ if not contratos_df.empty:
   # ==========================================
   st.sidebar.header("Filtros Globais")
 
-  # 1. Filtro de Corretora
   corretora_selecionada = st.sidebar.selectbox(
       "Selecione a Corretora", ["Ambas", "BTG", "XP"]
   )
@@ -137,7 +169,6 @@ if not contratos_df.empty:
   else:
     contratos_filtrados = contratos_df
 
-  # 2. Filtro de Carteira
   if "Carteira" in contratos_filtrados.columns:
     carteiras_disponiveis = [
         str(c) for c in contratos_filtrados["Carteira"].dropna().unique()
@@ -152,37 +183,21 @@ if not contratos_df.empty:
           contratos_filtrados["Carteira"].astype(str) == carteira_selecionada
       ]
 
-  # Identificando colunas de meses a partir de "31/01/2023"
+  # Identificando estritamente colunas de meses que contêm '/' a partir de '31/01/2023'
   todas_colunas = list(contratos_filtrados.columns)
   if "31/01/2023" in todas_colunas:
     idx_inicio = todas_colunas.index("31/01/2023")
     colunas_meses = [
         col
         for col in todas_colunas[idx_inicio:]
-        if pd.api.types.is_numeric_dtype(contratos_filtrados[col])
+        if "/" in str(col)
+        and pd.api.types.is_numeric_dtype(contratos_filtrados[col])
     ]
   else:
-    colunas_excluir = [
-        "Conta",
-        "Cliente",
-        "Corretora",
-        "Status",
-        "Assessor",
-        "Produto",
-        "Escritório",
-        "UF",
-        "Operador",
-        "Situação",
-        "Exceção",
-        "Início da Gestão",
-        "Data distrato",
-        "Carteira",
-        "Conta_Str",
-    ]
     colunas_meses = [
         col
         for col in contratos_filtrados.columns
-        if col not in colunas_excluir
+        if "/" in str(col)
         and pd.api.types.is_numeric_dtype(contratos_filtrados[col])
     ]
 
@@ -239,7 +254,7 @@ if not contratos_df.empty:
         )
         ax.set_title(
             f"Evolução Patrimonial Mensal ({corretora_selecionada}"
-            f" {f'- Carteira: {carteira_selecionada}' if 'carteira_selecionada' in locals() and carteira_selecionada != 'Todas' else ''})",
+            f" {f'- Carteira: {carteira_selecionada}' if 'carteira_selejonada' in locals() and carteira_selecionada != 'Todas' else ''})",
             fontsize=13,
         )
         ax.set_xlabel("Meses", fontsize=11)
