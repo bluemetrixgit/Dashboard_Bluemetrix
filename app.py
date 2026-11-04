@@ -14,7 +14,6 @@ st.set_page_config(
 st.title("📊 Dashboard Bluemetrix - Controle de Contratos")
 
 
-# Função para carregar e processar os dados com segurança blindada
 @st.cache_data
 def carregar_dados():
   colunas_desejadas = [
@@ -69,10 +68,7 @@ def carregar_dados():
           .str.strip()
       )
   except Exception as e:
-    st.error(
-        f"Erro ao processar o arquivo Excel de Contratos (Verifique se o arquivo"
-        f" está corrompido no GitHub): {e}"
-    )
+    st.error(f"Erro ao processar o arquivo Excel de Contratos: {e}")
     return pd.DataFrame(), pd.DataFrame()
 
   # Leitura e processamento da Posição BTG
@@ -86,6 +82,10 @@ def carregar_dados():
       df_pos_btg = pd.read_excel(
           path_pos_btg, sheet_name="Export", engine="openpyxl"
       )
+
+      # Padronizar nomes das colunas da posição para evitar erros de maiúsculas/minúsculas
+      df_pos_btg.columns = [str(c).strip() for c in df_pos_btg.columns]
+
       if "Conta" in df_pos_btg.columns:
         df_pos_btg["Conta_Str"] = (
             df_pos_btg["Conta"]
@@ -94,36 +94,38 @@ def carregar_dados():
             .str.strip()
         )
 
-        contas_validas_btg = set(
-            contratos_geral[contratos_geral["Corretora"] == "BTG"][
-                "Conta_Str"
-            ].dropna()
-        )
-        df_pos_btg = df_pos_btg[
-            df_pos_btg["Conta_Str"].isin(contas_validas_btg)
-        ].copy()
-
         if not df_pos_btg.empty and "Mercado" in df_pos_btg.columns:
 
           def define_coluna_posicao(row):
             mercado = str(row.get("Mercado", "")).strip().lower()
             if "renda fixa" in mercado:
-              return str(row.get("Produto", "Outros"))
+              return str(row.get("Produto", "Outros RF"))
             elif "renda variável" in mercado or "renda variavel" in mercado:
-              return str(row.get("Sub Mercado", "Outros"))
+              return str(row.get("Sub Mercado", "Outros RV"))
             return f"{row.get('Mercado', 'Outros')} - Outros"
 
           df_pos_btg["Coluna_Dinamica"] = df_pos_btg.apply(
               define_coluna_posicao, axis=1
           )
 
-          if "Valor Bruto" in df_pos_btg.columns:
+          # Converter 'Valor Bruto' para numérico
+          col_vb = (
+              "Valor Bruto"
+              if "Valor Bruto" in df_pos_btg.columns
+              else [
+                  c for c in df_pos_btg.columns if "valor" in c.lower()
+              ][0]
+              if [c for c in df_pos_btg.columns if "valor" in c.lower()]
+              else None
+          )
+          if col_vb:
             df_pos_btg["Valor Bruto"] = pd.to_numeric(
-                df_pos_btg["Valor Bruto"], errors="coerce"
+                df_pos_btg[col_vb], errors="coerce"
             ).fillna(0)
           else:
             df_pos_btg["Valor Bruto"] = 0
 
+          # Criando a pivot table agrupando por Conta e pelas colunas dinâmicas (Valor Bruto)
           btg_pos_pivot = df_pos_btg.pivot_table(
               index="Conta_Str",
               columns="Coluna_Dinamica",
@@ -137,7 +139,6 @@ def carregar_dados():
   return contratos_geral, btg_pos_pivot
 
 
-# Carregando os dados
 contratos_df, btg_pos_pivot = carregar_dados()
 
 if not contratos_df.empty:
@@ -149,6 +150,7 @@ if not contratos_df.empty:
 
     df_btg_view = contratos_df[contratos_df["Corretora"] == "BTG"].copy()
 
+    # Fazendo o merge (left join) para trazer as colunas dinâmicas de Valor Bruto baseadas na conta
     if not btg_pos_pivot.empty:
       df_btg_view = pd.merge(
           df_btg_view, btg_pos_pivot, on="Conta_Str", how="left"
@@ -199,9 +201,7 @@ if not contratos_df.empty:
     st.dataframe(df_xp_view, use_container_width=True)
 
 else:
-  st.warning(
-      "Aguardando arquivos válidos na pasta data/ para carregar o dashboard."
-  )
+  st.warning("Nenhum dado foi carregado. Verifique os arquivos na pasta data/.")
 
 
 
