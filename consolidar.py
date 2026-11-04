@@ -25,18 +25,20 @@ def consolidar_dados():
   df_xp_financeiro["Corretora"] = "XP"
 
   # Unificando os contratos de ambas as corretoras para a aba de Evolução Patrimonial
-  # (Certifique-se de que os nomes das colunas de meses batem entre as abas BTG e XP)
   df_contratos_geral = pd.concat(
       [df_btg_contratos, df_xp_contratos], ignore_index=True
   )
 
-  # Salvando bases para o Dashboard ler separadamente ou unificadas
+  # Salvando as bases consolidadas em CSV
   df_contratos_geral.to_csv("data/contratos_consolidados.csv", index=False)
   df_xp_financeiro.to_csv("data/xp_financeiro.csv", index=False)
   df_pos_btg.to_csv("data/btg_posicao.csv", index=False)
 
   print("Consolidação concluída com sucesso!")
 
+
+if __name__ == "__main__":
+  consolidar_dados()
 
 if __name__ == "__main__":
   consolidar_dados()
