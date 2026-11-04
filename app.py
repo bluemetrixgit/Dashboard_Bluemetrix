@@ -1,13 +1,6 @@
-import os
 import matplotlib.pyplot as plt
 import pandas as pd
 import streamlit as st
-
-# Tenta importar o script de consolidação
-try:
-  from consolidar import consolidar_dados
-except ImportError:
-  consolidar_dados = None
 
 st.set_page_config(
     page_title="Dashboard Bluemetrix", page_icon="📈", layout="wide"
@@ -16,39 +9,51 @@ st.set_page_config(
 st.title("📊 Dashboard Bluemetrix - Consolidado")
 
 
-# Função com cache inteligente baseada na data de modificação dos arquivos Excel
+# Função para carregar e processar os dados diretamente dos Excel (com cache)
 @st.cache_data
-def carregar_e_consolidar_dados(
-    path_contratos, path_pos_btg, path_pos_xp
-):
-  # Se os CSVs não existirem ou se os Excel foram atualizados, executa a consolidação
-  if (
-      not os.path.exists("data/contratos_consolidados.csv")
-      and consolidar_dados is not None
-  ):
-    st.info("Gerando base consolidada automaticamente pela primeira vez...")
-    consolidar_dados()
-
+def carregar_dados():
   try:
-    contratos = pd.read_csv("data/contratos_consolidados.csv")
-    xp_fin = pd.read_csv("data/xp_financeiro.csv")
-    btg_pos = pd.read_csv("data/btg_posicao.csv")
-    return contratos, xp_fin, btg_pos
-  except Exception as e:
-    st.error(
-        f"Erro ao carregar os dados. Execute a consolidação primeiro. Detalhe:"
-        f" {e}"
+    # 1. Leitura do Controle de Contratos (ignorando a primeira linha com header=1)
+    path_contratos = "data/Controle de Contratos - Atualizado 2026.xlsx"
+    df_btg_contratos = pd.read_excel(path_contratos, sheet_name="BTG", header=1)
+    df_xp_contratos = pd.read_excel(path_contratos, sheet_name="XP", header=1)
+
+    df_btg_contratos["Corretora"] = "BTG"
+    df_xp_contratos["Corretora"] = "XP"
+
+    # Unifica os contratos das duas corretoras
+    contratos_geral = pd.concat(
+        [df_btg_contratos, df_xp_contratos], ignore_index=True
     )
+
+    # 2. Leitura das Posições (Opcional para outras abas)
+    path_pos_btg = "data/Posição.xlsx"
+    path_pos_xp = "data/relatorio_posicoes_consolidada.xlsx"
+
+    btg_pos = (
+        pd.read_excel(path_pos_btg, sheet_name="Export")
+        if os.path.exists(path_pos_btg)
+        else pd.DataFrame()
+    )
+
+    xls_xp = pd.ExcelFile(path_pos_xp) if os.path.exists(path_pos_xp) else None
+    xp_fin = (
+        pd.read_excel(xls_xp, sheet_name="Financeiro")
+        if xls_xp and "Financeiro" in xls_xp.sheet_names
+        else pd.DataFrame()
+    )
+
+    return contratos_geral, xp_fin, btg_pos
+
+  except Exception as e:
+    st.error(f"Erro ao carregar os arquivos Excel: {e}")
     return None, None, None
 
 
-# Caminhos dos arquivos monitorados
-c1 = "data/Controle de Contratos - Atualizado 2026.xlsx"
-c2 = "data/Posição.xlsx"
-c3 = "data/relatorio_posicoes_consolidada.xlsx"
+import os
 
 # Carregando os dados
-contratos_df, xp_fin_df, btg_pos_df = carregar_e_consolidar_dados(c1, c2, c3)
+contratos_df, xp_fin_df, btg_pos_df = carregar_dados()
 
 if contratos_df is not None:
   # ==========================================
@@ -82,7 +87,7 @@ if contratos_df is not None:
     col2.metric("Corretora Selecionada", corretora_selecionada)
 
     st.markdown("### Amostra dos Dados de Contratos")
-    st.dataframe(contratos_filtrados.head(10))
+    st.dataframe(contratos_filtrados.head(10), use_container_width=True)
 
   with aba_evolucao:
     st.subheader("📈 Evolução Patrimonial por Mês")
@@ -99,6 +104,11 @@ if contratos_df is not None:
         "Status",
         "Assessor",
         "Produto",
+        "Escritório",
+        "UF",
+        "Operador",
+        "Situação",
+        "Exceção",
     ]
     colunas_meses = [
         col
@@ -147,3 +157,9 @@ if contratos_df is not None:
           "Não foi possível identificar colunas numéricas mensais no Controle"
           " de Contratos."
       )
+
+
+
+
+
+
