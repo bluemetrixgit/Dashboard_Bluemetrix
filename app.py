@@ -12,7 +12,7 @@ st.markdown("Visualização integrada de Contratos, Posições e Renda Fixa.")
 def carregar_dados():
     # Leitura simplificada para demonstração
     df_pos_btg = pd.read_excel("data/Posição.xlsx", sheet_name="Export")
-    xls_xp = pd.ExcelFile("data/relatorio_posicoes_consolidada_04112026141010.xlsx")
+    xls_xp = pd.ExcelFile("data/relatorio_posicoes_consolidada.xlsx")
     df_xp_fin = pd.read_excel(xls_xp, sheet_name="Financeiro")
     return df_pos_btg, df_xp_fin
 
