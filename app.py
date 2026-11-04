@@ -1,21 +1,49 @@
 import glob
 import os
-import matplotlib.pyplot as plt
-import matplotlib.ticker as ticker
 import pandas as pd
 import streamlit as st
 
 st.set_page_config(
-    page_title="Dashboard Bluemetrix - Controle de Contratos",
+    page_title="Dashboard Bluemetrix - Posição e Contratos",
     page_icon="📈",
     layout="wide",
 )
 
-st.title("📊 Dashboard Bluemetrix - Controle de Contratos")
+st.title("📊 Dashboard Bluemetrix - Posição Consolidada de Clientes")
+
+
+# =========================
+# FUNÇÕES AUXILIARES
+# =========================
+
+
+def limpar_conta(coluna):
+  """Padroniza a conta removendo decimals .
+
+  0, espaços e zeros à esquerda.
+  """
+  return (
+      coluna.astype(str)
+      .str.replace(r"\.0$", "", regex=True)
+      .str.strip()
+      .str.lstrip("0")
+  )
+
+
+def formatar_real(valor):
+  """Formata valores numéricos para o padrão de moeda brasileiro R$ X.XXX,XX."""
+  if pd.isna(valor) or valor == 0:
+    return "R$ 0,00"
+  return f"R$ {valor:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+
+# =========================
+# CARREGAR E PROCESSAR DADOS (SEM CACHE)
+# =========================
 
 
 def carregar_dados():
-  colunas_desejadas = [
+  colunas_contrato = [
       "Corretora",
       "Cliente",
       "Conta",
@@ -25,14 +53,13 @@ def carregar_dados():
       "Observações",
   ]
 
+  # 1. Leitura do Controle de Contratos
   path_contratos = "data/Controle de Contratos - Atualizado 2026.xlsx"
   if not os.path.exists(path_contratos):
     path_contratos = "Controle de Contratos - Atualizado 2026.xlsx"
 
   if not os.path.exists(path_contratos):
-    st.error(
-        f"Arquivo de contratos não encontrado no caminho: {path_contratos}"
-    )
+    st.error(f"Arquivo não encontrado: {path_contratos}")
     return pd.DataFrame(), pd.DataFrame()
 
   try:
@@ -46,31 +73,24 @@ def carregar_dados():
     df_btg["Corretora"] = "BTG"
     df_xp["Corretora"] = "XP"
 
+    # Limpar duplicidades de colunas
     df_btg = df_btg.loc[:, ~df_btg.columns.duplicated()]
     df_xp = df_xp.loc[:, ~df_xp.columns.duplicated()]
 
-    cols_btg = [c for c in colunas_desejadas if c in df_btg.columns]
-    cols_xp = [c for c in colunas_desejadas if c in df_xp.columns]
-
-    df_btg_filtrado = df_btg[cols_btg].copy()
-    df_xp_filtrado = df_xp[cols_xp].copy()
+    cols_btg = [c for c in colunas_contrato if c in df_btg.columns]
+    cols_xp = [c for c in colunas_contrato if c in df_xp.columns]
 
     contratos_geral = pd.concat(
-        [df_btg_filtrado, df_xp_filtrado], ignore_index=True
+        [df_btg[cols_btg], df_xp[cols_xp]], ignore_index=True
     )
 
     if "Conta" in contratos_geral.columns:
-      contratos_geral["Conta_Str"] = (
-          contratos_geral["Conta"]
-          .astype(str)
-          .str.replace(r"\.0$", "", regex=True)
-          .str.strip()
-      )
+      contratos_geral["Conta_Limpa"] = limpar_conta(contratos_geral["Conta"])
   except Exception as e:
-    st.error(f"Erro ao processar o arquivo Excel de Contratos: {e}")
+    st.error(f"Erro ao ler Controle de Contratos: {e}")
     return pd.DataFrame(), pd.DataFrame()
 
-  # Leitura e processamento da Posição BTG
+  # 2. Leitura da Posição BTG
   path_pos_btg = (
       "data/Posição.xlsx" if os.path.exists("data/Posição.xlsx") else "Posição.xlsx"
   )
@@ -78,136 +98,126 @@ def carregar_dados():
 
   if os.path.exists(path_pos_btg):
     try:
-      df_pos_btg = pd.read_excel(
+      posicao = pd.read_excel(
           path_pos_btg, sheet_name="Export", engine="openpyxl"
       )
-      df_pos_btg.columns = [str(c).strip() for c in df_pos_btg.columns]
+      posicao.columns = posicao.columns.str.strip()
 
-      if "Conta" in df_pos_btg.columns:
-        df_pos_btg["Conta_Str"] = (
-            df_pos_btg["Conta"]
-            .astype(str)
-            .str.replace(r"\.0$", "", regex=True)
-            .str.strip()
+      if "Conta" in posicao.columns:
+        posicao["Conta_Limpa"] = limpar_conta(posicao["Conta"])
+
+        # Regra de definição das colunas por tipo de Mercado
+        def definir_coluna(row):
+          mercado = str(row.get("Mercado", "")).strip().lower()
+          if "renda fixa" in mercado:
+            return str(row.get("Produto", "Outros RF"))
+          elif "renda variável" in mercado or "renda variavel" in mercado:
+            return str(row.get("Sub Mercado", "Outros RV"))
+          return f"{row.get('Mercado', 'Outros')}"
+
+        posicao["Coluna_Mercado"] = posicao.apply(definir_coluna, axis=1)
+
+        # Tratar o Valor Bruto para garantir conversão numérica limpa
+        col_vb = (
+            "Valor Bruto"
+            if "Valor Bruto" in posicao.columns
+            else [c for c in posicao.columns if "valor" in c.lower()][0]
         )
+        if posicao[col_vb].dtype == object:
+          posicao["Valor_Bruto_Num"] = pd.to_numeric(
+              posicao[col_vb]
+              .astype(str)
+              .str.replace("R$", "", regex=False)
+              .str.replace(".", "", regex=False)
+              .str.replace(",", ".", regex=False)
+              .str.strip(),
+              errors="coerce",
+          ).fillna(0)
+        else:
+          posicao["Valor_Bruto_Num"] = pd.to_numeric(
+              posicao[col_vb], errors="coerce"
+          ).fillna(0)
 
-        if not df_pos_btg.empty and "Mercado" in df_pos_btg.columns:
+        # Tabela dinâmica pivoteando as posições por Conta
+        btg_pos_pivot = posicao.pivot_table(
+            index="Conta_Limpa",
+            columns="Coluna_Mercado",
+            values="Valor_Bruto_Num",
+            aggfunc="sum",
+            fill_value=0,
+        ).reset_index()
 
-          def define_coluna_posicao(row):
-            mercado = str(row.get("Mercado", "")).strip().lower()
-            if "renda fixa" in mercado:
-              return str(row.get("Produto", "Outros RF"))
-            elif "renda variável" in mercado or "renda variavel" in mercado:
-              return str(row.get("Sub Mercado", "Outros RV"))
-            return f"{row.get('Mercado', 'Outros')} - Outros"
-
-          df_pos_btg["Coluna_Dinamica"] = df_pos_btg.apply(
-              define_coluna_posicao, axis=1
-          )
-
-          # Identificando e limpando a coluna 'Valor Bruto' para garantir que vire número
-          col_vb = (
-              "Valor Bruto"
-              if "Valor Bruto" in df_pos_btg.columns
-              else [
-                  c for c in df_pos_btg.columns if "valor" in c.lower()
-              ][0]
-              if [c for c in df_pos_btg.columns if "valor" in c.lower()]
-              else None
-          )
-
-          if col_vb:
-            # Limpeza de texto financeiro caso venha com R$, pontos e vírgulas
-            serie_vb = df_pos_btg[col_vb]
-            if serie_vb.dtype == object:
-              serie_vb = (
-                  serie_vb.astype(str)
-                  .str.replace("R$", "", regex=False)
-                  .str.replace(".", "", regex=False)
-                  .str.replace(",", ".", regex=False)
-                  .str.strip()
-              )
-            df_pos_btg["Valor Bruto Limpo"] = pd.to_numeric(
-                serie_vb, errors="coerce"
-            ).fillna(0)
-          else:
-            df_pos_btg["Valor Bruto Limpo"] = 0
-
-          # Pivot table agrupando por conta e colunas dinâmicas (soma do Valor Bruto)
-          btg_pos_pivot = df_pos_btg.pivot_table(
-              index="Conta_Str",
-              columns="Coluna_Dinamica",
-              values="Valor Bruto Limpo",
-              aggfunc="sum",
-              fill_value=0,
-          ).reset_index()
     except Exception as e:
-      st.warning(f"Aviso ao processar Posição BTG: {e}")
+      st.warning(f"Aviso ao ler Posição BTG: {e}")
 
   return contratos_geral, btg_pos_pivot
 
+
+# =========================
+# MONTAGEM DA INTERFACE
+# =========================
 
 contratos_df, btg_pos_pivot = carregar_dados()
 
 if not contratos_df.empty:
   aba_btg, aba_xp = st.tabs(["BTG", "XP"])
 
-  # --- ABA BTG ---
+  # -------------------------
+  # ABA BTG
+  # -------------------------
   with aba_btg:
-    st.subheader("🔵 Dashboard - Corretora BTG (Com Posições Casadas)")
+    st.subheader("🔵 Corretora BTG - Contratos & Posições")
 
     df_btg_view = contratos_df[contratos_df["Corretora"] == "BTG"].copy()
 
-    # Fazendo o merge (left join) para trazer as colunas dinâmicas com o Valor Bruto
+    # Cruzamento (Merge) entre Contratos e Posições Pivoted pela Conta Limpa
     if not btg_pos_pivot.empty:
-      df_btg_view = pd.merge(
-          df_btg_view, btg_pos_pivot, on="Conta_Str", how="left"
+      df_btg_view = df_btg_view.merge(
+          btg_pos_pivot, on="Conta_Limpa", how="left"
       )
-      colunas_pos_criadas = [
-          c for c in btg_pos_pivot.columns if c != "Conta_Str"
-      ]
-      for col in colunas_pos_criadas:
-        if col in df_btg_view.columns:
-          df_btg_view[col] = df_btg_view[col].fillna(0)
 
+      # Preencher NaN com 0 nas colunas dinâmicas criadas
+      colunas_posicao = [
+          c for c in btg_pos_pivot.columns if c != "Conta_Limpa"
+      ]
+      for col in colunas_posicao:
+        df_btg_view[col] = df_btg_view[col].fillna(0)
+
+    # Filtro de Carteira
     if "Carteira" in df_btg_view.columns:
-      carteiras_btg = ["Todas"] + sorted(
+      carteiras = ["Todas"] + sorted(
           [str(c) for c in df_btg_view["Carteira"].dropna().unique()]
       )
-      cart_btg_sel = st.selectbox(
-          "Filtrar Carteira (BTG)", carteiras_btg, key="sel_cart_btg"
+      sel_cart = st.selectbox(
+          "Filtrar por Carteira", carteiras, key="cart_btg_sel"
       )
-      if cart_btg_sel != "Todas":
+      if sel_cart != "Todas":
         df_btg_view = df_btg_view[
-            df_btg_view["Carteira"].astype(str) == cart_btg_sel
+            df_btg_view["Carteira"].astype(str) == sel_cart
         ]
 
-    st.metric("Total de Contratos (BTG)", len(df_btg_view))
-    st.markdown("### Contratos e Posições Consolidadas")
+    st.metric("Total de Contratos", len(df_btg_view))
 
-    # Formatando as colunas numéricas de posição para o padrão financeiro brasileiro (R$ X.XXX,XX) na exibição
-    colunas_para_formatar = (
-        [c for c in btg_pos_pivot.columns if c != "Conta_Str"]
-        if not btg_pos_pivot.empty
-        else []
-    )
-    df_exibicao_btg = df_btg_view.copy()
-    for col in colunas_para_formatar:
-      if col in df_exibicao_btg.columns:
-        df_exibicao_btg[col] = df_exibicao_btg[col].apply(
-            lambda x: f"R$ {x:,.2f}"
-            .replace(",", "X")
-            .replace(".", ",")
-            .replace("X", ".")
-            if pd.notnull(x) and x != 0
-            else "R$ 0,00"
-        )
+    # Formatação Visual da Tabela
+    df_exibir_btg = df_btg_view.copy()
 
-    st.dataframe(df_exibicao_btg, use_container_width=True)
+    # Formatar valores das colunas dinâmicas em Moeda R$
+    if not btg_pos_pivot.empty:
+      for col in colunas_posicao:
+        if col in df_exibir_btg.columns:
+          df_exibir_btg[col] = df_exibir_btg[col].apply(formatar_real)
 
-  # --- ABA XP ---
+    # Remover a coluna chave temporária da visualização
+    if "Conta_Limpa" in df_exibir_btg.columns:
+      df_exibir_btg = df_exibir_btg.drop(columns=["Conta_Limpa"])
+
+    st.dataframe(df_exibir_btg, use_container_width=True)
+
+  # -------------------------
+  # ABA XP
+  # -------------------------
   with aba_xp:
-    st.subheader("🟡 Dashboard - Corretora XP")
+    st.subheader("🟡 Corretora XP - Contratos")
 
     df_xp_view = contratos_df[contratos_df["Corretora"] == "XP"].copy()
 
@@ -215,20 +225,24 @@ if not contratos_df.empty:
       carteiras_xp = ["Todas"] + sorted(
           [str(c) for c in df_xp_view["Carteira"].dropna().unique()]
       )
-      cart_xp_sel = st.selectbox(
-          "Filtrar Carteira (XP)", carteiras_xp, key="sel_cart_xp"
+      sel_cart_xp = st.selectbox(
+          "Filtrar por Carteira", carteiras_xp, key="cart_xp_sel"
       )
-      if cart_xp_sel != "Todas":
+      if sel_cart_xp != "Todas":
         df_xp_view = df_xp_view[
-            df_xp_view["Carteira"].astype(str) == cart_xp_sel
+            df_xp_view["Carteira"].astype(str) == sel_cart_xp
         ]
 
-    st.metric("Total de Contratos (XP)", len(df_xp_view))
-    st.markdown("### Contratos Cadastrados")
+    if "Conta_Limpa" in df_xp_view.columns:
+      df_xp_view = df_xp_view.drop(columns=["Conta_Limpa"])
+
+    st.metric("Total de Contratos", len(df_xp_view))
     st.dataframe(df_xp_view, use_container_width=True)
 
 else:
-  st.warning("Nenhum dado foi carregado. Verifique os arquivos na pasta data/.")
+  st.warning(
+      "Nenhum dado encontrado. Verifique se os arquivos Excel estão na pasta."
+  )
 
 
 
