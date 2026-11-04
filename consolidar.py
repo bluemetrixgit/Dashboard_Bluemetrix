@@ -10,7 +10,7 @@ def consolidar_dados():
     
     # 2. Leitura das Posições BTG e XP
     path_pos_btg = "data/Posição.xlsx"
-    path_pos_xp = "data/relatorio_posicoes_consolidada_04112026141010.xlsx"
+    path_pos_xp = "data/relatorio_posicoes_consolidada.xlsx"
     
     df_pos_btg = pd.read_excel(path_pos_btg, sheet_name="Export")
     
