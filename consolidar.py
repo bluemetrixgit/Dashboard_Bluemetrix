@@ -4,7 +4,7 @@ import pandas as pd
 def consolidar_dados():
   print("Iniciando a consolidação dos dados...")
 
-  # 1. Leitura do Controle de Contratos (onde estão as colunas financeiras mensais)
+  # 1. Leitura do Controle de Contratos (ignorando a 1ª linha, usando a 2ª como cabeçalho)
   path_contratos = "data/Controle de Contratos - Atualizado 2026.xlsx"
   df_btg_contratos = pd.read_excel(path_contratos, sheet_name="BTG", header=1)
   df_xp_contratos = pd.read_excel(path_contratos, sheet_name="XP", header=1)
@@ -36,9 +36,6 @@ def consolidar_dados():
 
   print("Consolidação concluída com sucesso!")
 
-
-if __name__ == "__main__":
-  consolidar_dados()
 
 if __name__ == "__main__":
   consolidar_dados()
