@@ -12,7 +12,7 @@ st.set_page_config(
 st.title("📊 Dashboard Bluemetrix - Consolidado")
 
 
-# Função para carregar e processar os dados com segurança contra arquivos corrompidos
+# Função para carregar, processar e filtrar os dados com segurança
 @st.cache_data
 def carregar_dados():
   contratos_geral = pd.DataFrame()
@@ -22,7 +22,6 @@ def carregar_dados():
   # 1. Leitura do Controle de Contratos
   path_contratos = "data/Controle de Contratos - Atualizado 2026.xlsx"
   if not os.path.exists(path_contratos):
-    # Tenta na raiz se não estiver na pasta data
     path_contratos = "Controle de Contratos - Atualizado 2026.xlsx"
 
   try:
@@ -37,17 +36,44 @@ def carregar_dados():
   except Exception as e:
     st.error(f"Erro ao ler o Controle de Contratos: {e}")
 
-  # 2. Leitura da Posição BTG
+  # Normalizando as contas do contrato para string (removendo ponto decimal se houver)
+  if "Conta" in contratos_geral.columns:
+    contratos_geral["Conta_Str"] = (
+        contratos_geral["Conta"]
+        .astype(str)
+        .str.replace(r"\.0$", "", regex=True)
+        .str.strip()
+    )
+
+  # 2. Leitura da Posição BTG e Filtro por Match de Contas
   path_pos_btg = (
       "data/Posição.xlsx" if os.path.exists("data/Posição.xlsx") else "Posição.xlsx"
   )
   try:
     if os.path.exists(path_pos_btg):
-      btg_pos = pd.read_excel(path_pos_btg, sheet_name="Export")
+      df_pos_btg_raw = pd.read_excel(path_pos_btg, sheet_name="Export")
+      if "Conta" in df_pos_btg_raw.columns and "Conta_Str" in contratos_geral.columns:
+        df_pos_btg_raw["Conta_Str"] = (
+            df_pos_btg_raw["Conta"]
+            .astype(str)
+            .str.replace(r"\.0$", "", regex=True)
+            .str.strip()
+        )
+        contas_validas_btg = set(
+            contratos_geral[contratos_geral["Corretora"] == "BTG"][
+                "Conta_Str"
+            ].dropna()
+        )
+        # Mantém apenas as contas que possuem match no controle de contratos
+        btg_pos = df_pos_btg_raw[
+            df_pos_btg_raw["Conta_Str"].isin(contas_validas_btg)
+        ].copy()
+      else:
+        btg_pos = df_pos_btg_raw
   except Exception as e:
     st.warning(f"Aviso ao ler Posição BTG: {e}")
 
-  # 3. Leitura do Relatório XP (Busca dinâmica para evitar erro de arquivo não encontrado ou corrompido)
+  # 3. Leitura do Relatório XP e Filtro por Match de Contas
   arquivos_xp = glob.glob("data/relatorio_posicoes_consolidada*.xlsx") + glob.glob(
       "relatorio_posicoes_consolidada*.xlsx"
   )
@@ -56,17 +82,41 @@ def carregar_dados():
     try:
       xls_xp = pd.ExcelFile(arquivo_xp_recente)
       if "Financeiro" in xls_xp.sheet_names:
-        xp_fin = pd.read_excel(xls_xp, sheet_name="Financeiro")
+        df_xp_fin_raw = pd.read_excel(xls_xp, sheet_name="Financeiro")
+        # Identifica a coluna de conta na XP (geralmente CodigoCliente ou Conta)
+        col_conta_xp = (
+            "CodigoCliente"
+            if "CodigoCliente" in df_xp_fin_raw.columns
+            else "Conta"
+        )
+        if (
+            col_conta_xp in df_xp_fin_raw.columns
+            and "Conta_Str" in contratos_geral.columns
+        ):
+          df_xp_fin_raw["Conta_Str"] = (
+              df_xp_fin_raw[col_conta_xp]
+              .astype(str)
+              .str.replace(r"\.0$", "", regex=True)
+              .str.strip()
+          )
+          contas_validas_xp = set(
+              contratos_geral[contratos_geral["Corretora"] == "XP"][
+                  "Conta_Str"
+              ].dropna()
+          )
+          # Mantém apenas as contas que possuem match
+          xp_fin = df_xp_fin_raw[
+              df_xp_fin_raw["Conta_Str"].isin(contas_validas_xp)
+          ].copy()
+        else:
+          xp_fin = df_xp_fin_raw
     except Exception as e:
-      st.warning(
-          f"Aviso: O relatório da XP ({arquivo_xp_recente}) parece estar"
-          f" corrompido ou inválido. Detalhe: {e}"
-      )
+      st.warning(f"Aviso ao ler o relatório da XP: {e}")
 
   return contratos_geral, xp_fin, btg_pos
 
 
-# Carregando os dados
+# Carregando os dados filtrados
 contratos_df, xp_fin_df, btg_pos_df = carregar_dados()
 
 if not contratos_df.empty:
@@ -127,6 +177,7 @@ if not contratos_df.empty:
         "Início da Gestão",
         "Data distrato",
         "Carteira",
+        "Conta_Str",
     ]
     colunas_meses = [
         col
@@ -146,7 +197,7 @@ if not contratos_df.empty:
     st.subheader(f"Visão Geral - Corretora: {corretora_selecionada}")
 
     col1, col2 = st.columns(2)
-    col1.metric("Total de Contratos", len(contratos_filtrados))
+    col1.metric("Total de Contratos (Com Match)", len(contratos_filtrados))
     col2.metric("Corretora Selecionada", corretora_selecionada)
 
     st.markdown("### Amostra dos Dados de Contratos")
