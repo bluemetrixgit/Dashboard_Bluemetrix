@@ -6,8 +6,8 @@ def consolidar_dados():
 
   # 1. Leitura do Controle de Contratos (onde estão as colunas financeiras mensais)
   path_contratos = "data/Controle de Contratos - Atualizado 2026.xlsx"
-  df_btg_contratos = pd.read_excel(path_contratos, sheet_name="BTG")
-  df_xp_contratos = pd.read_excel(path_contratos, sheet_name="XP")
+  df_btg_contratos = pd.read_excel(path_contratos, sheet_name="BTG", header=1)
+  df_xp_contratos = pd.read_excel(path_contratos, sheet_name="XP", header=1)
 
   # Adicionamos uma coluna de identificação da corretora em cada dataframe
   df_btg_contratos["Corretora"] = "BTG"
