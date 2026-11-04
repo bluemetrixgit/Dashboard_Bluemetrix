@@ -14,7 +14,6 @@ st.set_page_config(
 st.title("📊 Dashboard Bluemetrix - Controle de Contratos")
 
 
-# Função SEM cache - Lê os arquivos diretamente a cada execução
 def carregar_dados():
   colunas_desejadas = [
       "Corretora",
@@ -106,6 +105,7 @@ def carregar_dados():
               define_coluna_posicao, axis=1
           )
 
+          # Identificando e limpando a coluna 'Valor Bruto' para garantir que vire número
           col_vb = (
               "Valor Bruto"
               if "Valor Bruto" in df_pos_btg.columns
@@ -115,18 +115,29 @@ def carregar_dados():
               if [c for c in df_pos_btg.columns if "valor" in c.lower()]
               else None
           )
+
           if col_vb:
-            df_pos_btg["Valor Bruto"] = pd.to_numeric(
-                df_pos_btg[col_vb], errors="coerce"
+            # Limpeza de texto financeiro caso venha com R$, pontos e vírgulas
+            serie_vb = df_pos_btg[col_vb]
+            if serie_vb.dtype == object:
+              serie_vb = (
+                  serie_vb.astype(str)
+                  .str.replace("R$", "", regex=False)
+                  .str.replace(".", "", regex=False)
+                  .str.replace(",", ".", regex=False)
+                  .str.strip()
+              )
+            df_pos_btg["Valor Bruto Limpo"] = pd.to_numeric(
+                serie_vb, errors="coerce"
             ).fillna(0)
           else:
-            df_pos_btg["Valor Bruto"] = 0
+            df_pos_btg["Valor Bruto Limpo"] = 0
 
           # Pivot table agrupando por conta e colunas dinâmicas (soma do Valor Bruto)
           btg_pos_pivot = df_pos_btg.pivot_table(
               index="Conta_Str",
               columns="Coluna_Dinamica",
-              values="Valor Bruto",
+              values="Valor Bruto Limpo",
               aggfunc="sum",
               fill_value=0,
           ).reset_index()
@@ -136,7 +147,6 @@ def carregar_dados():
   return contratos_geral, btg_pos_pivot
 
 
-# Carregando os dados diretamente
 contratos_df, btg_pos_pivot = carregar_dados()
 
 if not contratos_df.empty:
@@ -174,7 +184,26 @@ if not contratos_df.empty:
 
     st.metric("Total de Contratos (BTG)", len(df_btg_view))
     st.markdown("### Contratos e Posições Consolidadas")
-    st.dataframe(df_btg_view, use_container_width=True)
+
+    # Formatando as colunas numéricas de posição para o padrão financeiro brasileiro (R$ X.XXX,XX) na exibição
+    colunas_para_formatar = (
+        [c for c in btg_pos_pivot.columns if c != "Conta_Str"]
+        if not btg_pos_pivot.empty
+        else []
+    )
+    df_exibicao_btg = df_btg_view.copy()
+    for col in colunas_para_formatar:
+      if col in df_exibicao_btg.columns:
+        df_exibicao_btg[col] = df_exibicao_btg[col].apply(
+            lambda x: f"R$ {x:,.2f}"
+            .replace(",", "X")
+            .replace(".", ",")
+            .replace("X", ".")
+            if pd.notnull(x) and x != 0
+            else "R$ 0,00"
+        )
+
+    st.dataframe(df_exibicao_btg, use_container_width=True)
 
   # --- ABA XP ---
   with aba_xp:
