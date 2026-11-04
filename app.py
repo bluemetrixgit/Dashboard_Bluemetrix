@@ -26,7 +26,7 @@ def carregar_dados():
         [df_btg_contratos, df_xp_contratos], ignore_index=True
     )
 
-    # 2. Leitura das Posições (Opcional para outras abas)
+    # 2. Leitura das Posições (Opcional)
     path_pos_btg = "data/Posição.xlsx"
     path_pos_xp = "data/relatorio_posicoes_consolidada.xlsx"
 
@@ -72,6 +72,31 @@ if contratos_df is not None:
   else:
     contratos_filtrados = contratos_df
 
+  # Identificando colunas descritivas para ignorar na formatação de moeda
+  colunas_excluir = [
+      "Conta",
+      "Cliente",
+      "Corretora",
+      "Status",
+      "Assessor",
+      "Produto",
+      "Escritório",
+      "UF",
+      "Operador",
+      "Situação",
+      "Exceção",
+      "Início da Gestão",
+      "Data distrato",
+  ]
+
+  # Colunas que são numéricas e representam meses/datas
+  colunas_meses = [
+      col
+      for col in contratos_filtrados.columns
+      if col not in colunas_excluir
+      and pd.api.types.is_numeric_dtype(contratos_filtrados[col])
+  ]
+
   # ==========================================
   # CRIAÇÃO DAS ABAS DO DASHBOARD
   # ==========================================
@@ -87,7 +112,23 @@ if contratos_df is not None:
     col2.metric("Corretora Selecionada", corretora_selecionada)
 
     st.markdown("### Amostra dos Dados de Contratos")
-    st.dataframe(contratos_filtrados.head(10), use_container_width=True)
+
+    # Formatando as colunas de meses para o formato de moeda brasileiro na exibição
+    if colunas_meses:
+      # Criamos uma cópia apenas para exibição formatada com R$
+      df_exibicao = contratos_filtrados.head(10).copy()
+      for col in colunas_meses:
+        df_exibicao[col] = df_exibicao[col].apply(
+            lambda x: f"R$ {x:,.2f}"
+            .replace(",", "X")
+            .replace(".", ",")
+            .replace("X", ".")
+            if pd.notnull(x)
+            else ""
+        )
+      st.dataframe(df_exibicao, use_container_width=True)
+    else:
+      st.dataframe(contratos_filtrados.head(10), use_container_width=True)
 
   with aba_evolucao:
     st.subheader("📈 Evolução Patrimonial por Mês")
@@ -95,27 +136,6 @@ if contratos_df is not None:
         "Análise temporal com base nas colunas financeiras mensais do"
         " Controle de Contratos."
     )
-
-    # Identificando colunas numéricas de meses (excluindo colunas descritivas comuns)
-    colunas_excluir = [
-        "Conta",
-        "Cliente",
-        "Corretora",
-        "Status",
-        "Assessor",
-        "Produto",
-        "Escritório",
-        "UF",
-        "Operador",
-        "Situação",
-        "Exceção",
-    ]
-    colunas_meses = [
-        col
-        for col in contratos_filtrados.columns
-        if col not in colunas_excluir
-        and pd.api.types.is_numeric_dtype(contratos_filtrados[col])
-    ]
 
     if colunas_meses:
       # Somando os valores financeiros por mês para a(s) corretora(s) selecionada(s)
@@ -143,10 +163,21 @@ if contratos_df is not None:
         st.pyplot(fig)
 
         st.markdown("### Tabela de Valores Mensais")
-        st.dataframe(
-            soma_mensal.reset_index(name="Patrimônio Consolidado"),
-            use_container_width=True,
+
+        # Formatando a tabela de resumo mensal para R$ mantendo os títulos das datas
+        df_tabela_mensal = soma_mensal.reset_index(
+            name="Patrimônio Consolidado"
         )
+        df_tabela_mensal["Patrimônio Consolidado"] = df_tabela_mensal[
+            "Patrimônio Consolidado"
+        ].apply(
+            lambda x: f"R$ {x:,.2f}"
+            .replace(",", "X")
+            .replace(".", ",")
+            .replace("X", ".")
+        )
+
+        st.dataframe(df_tabela_mensal, use_container_width=True)
       else:
         st.info(
             "Não foram encontrados dados numéricos nas colunas mensais"
