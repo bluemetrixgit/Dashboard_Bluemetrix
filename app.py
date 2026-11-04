@@ -261,6 +261,28 @@ if not contratos_df.empty:
         )
         df_tabela_mensal["Patrimônio Consolidado"] = df_tabela_mensal[
             "Patrimônio Consolidado"
+        ].apply(
+            lambda x: f"R$ {x:,.2f}"
+            .replace(",", "X")
+            .replace(".", ",")
+            .replace("X", ".")
+        )
+
+        st.dataframe(df_tabela_mensal, use_container_width=True)
+      else:
+        st.info(
+            "Não foram encontrados dados numéricos nas colunas mensais"
+            " filtradas."
+        )
+    else:
+      st.warning(
+          "Não foi possível identificar colunas mensais a partir de 31/01/2023."
+      )
+else:
+  st.warning(
+      "Nenhum dado de contratos foi carregado. Verifique se os arquivos Excel"
+      " estão corretos na pasta."
+  )
 
 
 
