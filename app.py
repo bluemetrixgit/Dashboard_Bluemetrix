@@ -6,37 +6,63 @@ import pandas as pd
 import streamlit as st
 
 st.set_page_config(
-    page_title="Dashboard Bluemetrix", page_icon="📈", layout="wide"
+    page_title="Dashboard Bluemetrix - Consolidado",
+    page_icon="📈",
+    layout="wide",
 )
 
-st.title("📊 Dashboard Bluemetrix - Consolidado")
+st.title("📊 Dashboard Bluemetrix - Controle de Contratos")
 
 
-# Função para carregar, processar e filtrar os dados com segurança
+# Função para carregar e processar os dados com segurança
 @st.cache_data
 def carregar_dados():
-  contratos_geral = pd.DataFrame()
-  xp_fin = pd.DataFrame()
-  btg_pos = pd.DataFrame()
+  # Colunas exatas desejadas do Controle de Contratos
+  colunas_desejadas = [
+      "Corretora",
+      "Cliente",
+      "Conta",
+      "Status",
+      "Situação",
+      "Carteira",
+      "Observações",
+  ]
 
-  # 1. Leitura do Controle de Contratos
   path_contratos = "data/Controle de Contratos - Atualizado 2026.xlsx"
   if not os.path.exists(path_contratos):
     path_contratos = "Controle de Contratos - Atualizado 2026.xlsx"
 
   try:
-    df_btg_contratos = pd.read_excel(path_contratos, sheet_name="BTG", header=1)
-    df_xp_contratos = pd.read_excel(path_contratos, sheet_name="XP", header=1)
+    # Lendo ignorando a primeira linha (header=1)
+    df_btg = pd.read_excel(path_contratos, sheet_name="BTG", header=1)
+    df_xp = pd.read_excel(path_contratos, sheet_name="XP", header=1)
 
-    df_btg_contratos["Corretora"] = "BTG"
-    df_xp_contratos["Corretora"] = "XP"
-    contratos_geral = pd.concat(
-        [df_btg_contratos, df_xp_contratos], ignore_index=True
-    )
+    df_btg["Corretora"] = "BTG"
+    df_xp["Corretora"] = "XP"
+
+    # Filtrando apenas as colunas que existem na planilha para evitar erros
+    cols_btg_existentes = [
+        c for c in colunas_desejadas if c in df_btg.columns
+    ] + [
+        c
+        for c in df_btg.columns
+        if "/" in str(c) or pd.api.types.is_numeric_dtype(df_btg[c])
+    ]
+    cols_xp_existentes = [c for c in colunas_desejadas if c in df_xp.columns] + [
+        c
+        for c in df_xp.columns
+        if "/" in str(c) or pd.api.types.is_numeric_dtype(df_xp[c])
+    ]
+
+    df_btg = df_btg[cols_btg_existentes]
+    df_xp = df_xp[cols_xp_existentes]
+
+    contratos_geral = pd.concat([df_btg, df_xp], ignore_index=True)
   except Exception as e:
     st.error(f"Erro ao ler o Controle de Contratos: {e}")
+    return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
-  # Normalizando as contas do contrato para string (removendo ponto decimal se houver)
+  # Normalizando as contas para string (removendo .0)
   if "Conta" in contratos_geral.columns:
     contratos_geral["Conta_Str"] = (
         contratos_geral["Conta"]
@@ -45,10 +71,11 @@ def carregar_dados():
         .str.strip()
     )
 
-  # 2. Leitura da Posição BTG e Filtro por Match de Contas
+  # Leitura e Filtro de Match da Posição BTG
   path_pos_btg = (
       "data/Posição.xlsx" if os.path.exists("data/Posição.xlsx") else "Posição.xlsx"
   )
+  btg_pos = pd.DataFrame()
   try:
     if os.path.exists(path_pos_btg):
       df_pos_btg_raw = pd.read_excel(path_pos_btg, sheet_name="Export")
@@ -64,26 +91,23 @@ def carregar_dados():
                 "Conta_Str"
             ].dropna()
         )
-        # Mantém apenas as contas que possuem match no controle de contratos
         btg_pos = df_pos_btg_raw[
             df_pos_btg_raw["Conta_Str"].isin(contas_validas_btg)
         ].copy()
-      else:
-        btg_pos = df_pos_btg_raw
   except Exception as e:
     st.warning(f"Aviso ao ler Posição BTG: {e}")
 
-  # 3. Leitura do Relatório XP e Filtro por Match de Contas
+  # Leitura e Filtro de Match da XP Financeiro
   arquivos_xp = glob.glob("data/relatorio_posicoes_consolidada*.xlsx") + glob.glob(
       "relatorio_posicoes_consolidada*.xlsx"
   )
+  xp_fin = pd.DataFrame()
   if arquivos_xp:
     arquivo_xp_recente = max(arquivos_xp, key=os.path.getmtime)
     try:
       xls_xp = pd.ExcelFile(arquivo_xp_recente)
       if "Financeiro" in xls_xp.sheet_names:
         df_xp_fin_raw = pd.read_excel(xls_xp, sheet_name="Financeiro")
-        # Identifica a coluna de conta na XP (geralmente CodigoCliente ou Conta)
         col_conta_xp = (
             "CodigoCliente"
             if "CodigoCliente" in df_xp_fin_raw.columns
@@ -104,184 +128,73 @@ def carregar_dados():
                   "Conta_Str"
               ].dropna()
           )
-          # Mantém apenas as contas que possuem match
           xp_fin = df_xp_fin_raw[
               df_xp_fin_raw["Conta_Str"].isin(contas_validas_xp)
           ].copy()
-        else:
-          xp_fin = df_xp_fin_raw
     except Exception as e:
       st.warning(f"Aviso ao ler o relatório da XP: {e}")
 
   return contratos_geral, xp_fin, btg_pos
 
 
-# Carregando os dados filtrados
+# Carregando os dados
 contratos_df, xp_fin_df, btg_pos_df = carregar_dados()
 
 if not contratos_df.empty:
   # ==========================================
-  # FILTROS LATERAIS (CORRETORA E CARTEIRA)
+  # CRIAÇÃO DAS ABAS: BTG e XP
   # ==========================================
-  st.sidebar.header("Filtros Globais")
+  aba_btg, aba_xp = st.tabs(["BTG", "XP"])
 
-  # 1. Filtro de Corretora
-  corretora_selecionada = st.sidebar.selectbox(
-      "Selecione a Corretora", ["Ambas", "BTG", "XP"]
-  )
+  # --- ABA BTG ---
+  with aba_btg:
+    st.subheader("🔵 Dashboard - Corretora BTG")
 
-  if corretora_selecionada != "Ambas":
-    contratos_filtrados = contratos_df[
-        contratos_df["Corretora"] == corretora_selecionada
-    ]
-  else:
-    contratos_filtrados = contratos_df
+    df_btg_view = contratos_df[contratos_df["Corretora"] == "BTG"].copy()
 
-  # 2. Filtro de Carteira
-  if "Carteira" in contratos_filtrados.columns:
-    carteiras_disponiveis = [
-        str(c) for c in contratos_filtrados["Carteira"].dropna().unique()
-    ]
-    carteiras_disponiveis.sort()
-    carteira_selecionada = st.sidebar.selectbox(
-        "Selecione a Carteira", ["Todas"] + carteiras_disponiveis
-    )
-
-    if carteira_selecionada != "Todas":
-      contratos_filtrados = contratos_filtrados[
-          contratos_filtrados["Carteira"].astype(str) == carteira_selecionada
-      ]
-
-  # Identificando colunas de meses a partir de "31/01/2023"
-  todas_colunas = list(contratos_filtrados.columns)
-  if "31/01/2023" in todas_colunas:
-    idx_inicio = todas_colunas.index("31/01/2023")
-    colunas_meses = [
-        col
-        for col in todas_colunas[idx_inicio:]
-        if pd.api.types.is_numeric_dtype(contratos_filtrados[col])
-    ]
-  else:
-    colunas_excluir = [
-        "Conta",
-        "Cliente",
-        "Corretora",
-        "Status",
-        "Assessor",
-        "Produto",
-        "Escritório",
-        "UF",
-        "Operador",
-        "Situação",
-        "Exceção",
-        "Início da Gestão",
-        "Data distrato",
-        "Carteira",
-        "Conta_Str",
-    ]
-    colunas_meses = [
-        col
-        for col in contratos_filtrados.columns
-        if col not in colunas_excluir
-        and pd.api.types.is_numeric_dtype(contratos_filtrados[col])
-    ]
-
-  # ==========================================
-  # CRIAÇÃO DAS ABAS DO DASHBOARD
-  # ==========================================
-  aba_geral, aba_evolucao = st.tabs(
-      ["Visão Geral", "Evolução Patrimonial por Mês"]
-  )
-
-  with aba_geral:
-    st.subheader(f"Visão Geral - Corretora: {corretora_selecionada}")
-
-    col1, col2 = st.columns(2)
-    col1.metric("Total de Contratos (Com Match)", len(contratos_filtrados))
-    col2.metric("Corretora Selecionada", corretora_selecionada)
-
-    st.markdown("### Amostra dos Dados de Contratos")
-
-    if colunas_meses:
-      df_exibicao = contratos_filtrados.head(10).copy()
-      for col in colunas_meses:
-        df_exibicao[col] = df_exibicao[col].apply(
-            lambda x: f"R$ {x:,.2f}"
-            .replace(",", "X")
-            .replace(".", ",")
-            .replace("X", ".")
-            if pd.notnull(x)
-            else ""
-        )
-      st.dataframe(df_exibicao, use_container_width=True)
-    else:
-      st.dataframe(contratos_filtrados.head(10), use_container_width=True)
-
-  with aba_evolucao:
-    st.subheader("📈 Evolução Patrimonial por Mês (A partir de 31/01/2023)")
-    st.markdown(
-        "Análise temporal com base nas colunas financeiras mensais a partir de"
-        " Janeiro de 2023."
-    )
-
-    if colunas_meses:
-      soma_mensal = contratos_filtrados[colunas_meses].sum()
-
-      if not soma_mensal.empty and soma_mensal.sum() > 0:
-        fig, ax = plt.subplots(figsize=(11, 5))
-        ax.plot(
-            soma_mensal.index,
-            soma_mensal.values,
-            marker="o",
-            linestyle="-",
-            color="#1f77b4",
-            linewidth=2,
-        )
-        ax.set_title(
-            f"Evolução Patrimonial Mensal ({corretora_selecionada}"
-            f" {f'- Carteira: {carteira_selecionada}' if 'carteira_selecionada' in locals() and carteira_selecionada != 'Todas' else ''})",
-            fontsize=13,
-        )
-        ax.set_xlabel("Meses", fontsize=11)
-        ax.set_ylabel("Valor Consolidado (R$)", fontsize=11)
-
-        # Ajustando o eixo Y para saltos de 100.000.000,00 (100 milhões)
-        ax.yaxis.set_major_locator(ticker.MultipleLocator(100_000_000))
-        ax.yaxis.set_major_formatter(
-            ticker.FuncFormatter(lambda x, p: f"R$ {x*1e-6:.0f}M")
-        )
-
-        plt.xticks(rotation=45)
-        ax.grid(True, linestyle="--", alpha=0.6)
-        st.pyplot(fig)
-
-        st.markdown("### Tabela de Valores Mensais")
-        df_tabela_mensal = soma_mensal.reset_index(
-            name="Patrimônio Consolidado"
-        )
-        df_tabela_mensal["Patrimônio Consolidado"] = df_tabela_mensal[
-            "Patrimônio Consolidado"
-        ].apply(
-            lambda x: f"R$ {x:,.2f}"
-            .replace(",", "X")
-            .replace(".", ",")
-            .replace("X", ".")
-        )
-
-        st.dataframe(df_tabela_mensal, use_container_width=True)
-      else:
-        st.info(
-            "Não foram encontrados dados numéricos nas colunas mensais"
-            " filtradas."
-        )
-    else:
-      st.warning(
-          "Não foi possível identificar colunas mensais a partir de 31/01/2023."
+    # Filtro lateral específico ou geral para BTG
+    if "Carteira" in df_btg_view.columns:
+      carteiras_btg = ["Todas"] + sorted(
+          [str(c) for c in df_btg_view["Carteira"].dropna().unique()]
       )
+      cart_btg_sel = st.selectbox(
+          "Filtrar Carteira (BTG)", carteiras_btg, key="sel_cart_btg"
+      )
+      if cart_btg_sel != "Todas":
+        df_btg_view = df_btg_view[
+            df_btg_view["Carteira"].astype(str) == cart_btg_sel
+        ]
+
+    st.metric("Total de Contratos (BTG)", len(df_btg_view))
+    st.markdown("### Contratos Cadastrados")
+    st.dataframe(df_btg_view, use_container_width=True)
+
+  # --- ABA XP ---
+  with aba_xp:
+    st.subheader("🟡 Dashboard - Corretora XP")
+
+    df_xp_view = contratos_df[contratos_df["Corretora"] == "XP"].copy()
+
+    if "Carteira" in df_xp_view.columns:
+      carteiras_xp = ["Todas"] + sorted(
+          [str(c) for c in df_xp_view["Carteira"].dropna().unique()]
+      )
+      cart_xp_sel = st.selectbox(
+          "Filtrar Carteira (XP)", carteiras_xp, key="sel_cart_xp"
+      )
+      if cart_xp_sel != "Todas":
+        df_xp_view = df_xp_view[
+            df_xp_view["Carteira"].astype(str) == cart_xp_sel
+        ]
+
+    st.metric("Total de Contratos (XP)", len(df_xp_view))
+    st.markdown("### Contratos Cadastrados")
+    st.dataframe(df_xp_view, use_container_width=True)
+
 else:
   st.warning(
-      "Nenhum dado de contratos foi carregado. Verifique se os arquivos Excel"
-      " estão corretos na pasta."
+      "Nenhum dado encontrado. Verifique se os arquivos Excel estão na pasta"
+      " correta."
   )
 
 
