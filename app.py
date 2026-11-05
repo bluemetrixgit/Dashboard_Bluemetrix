@@ -88,15 +88,31 @@ def carregar_dados():
             posicao = pd.read_excel(path_pos_btg, sheet_name="Export", engine="openpyxl")
             posicao.columns = posicao.columns.str.strip()
 
+            # Excluir colunas NaN e 'Valor em Trânsito' se existirem
+            posicao = posicao.loc[:, ~posicao.columns.isna()]
+            posicao = posicao.loc[:, ~posicao.columns.str.contains("Valor em Trânsito|Valor em Transito", case=False, na=False)]
+
             if "Conta" in posicao.columns:
                 posicao["Conta_Limpa"] = limpar_conta(posicao["Conta"])
 
                 def definir_coluna(row):
+                    submercado = str(row.get("Sub Mercado", "")).strip().upper()
                     mercado = str(row.get("Mercado", "")).strip().lower()
+
+                    # Regras de unificação e renomeação solicitadas
+                    if "TESOURO DIRETO" in submercado:
+                        return "Tesouro Direto"
+                    elif "TITULO PUBLICO" in submercado or "TÍTULO PÚBLICO" in submercado:
+                        return "Título Público"
+                    elif "PRIVADO" in submercado:
+                        return "CrPr"
+                    
+                    # Regras padrão anteriores baseadas em Mercado / Produto / Sub Mercado
                     if "renda fixa" in mercado:
                         return str(row.get("Produto", "Outros RF"))
                     elif "renda variável" in mercado or "renda variavel" in mercado:
                         return str(row.get("Sub Mercado", "Outros RV"))
+                    
                     return f"{row.get('Mercado', 'Outros')}"
 
                 posicao["Coluna_Mercado"] = posicao.apply(definir_coluna, axis=1)
@@ -156,21 +172,18 @@ if not contratos_df.empty:
         # -------------------------
         st.sidebar.header("Filtros BTG")
 
-        # Filtro de Conta (Múltipla Seleção)
         if "Conta" in df_btg_view.columns:
             contas_disponiveis = sorted([str(c) for c in df_btg_view["Conta"].dropna().unique()])
             contas_selecionadas = st.sidebar.multiselect("Filtrar por Conta", contas_disponiveis, key="conta_btg_sel")
             if contas_selecionadas:
                 df_btg_view = df_btg_view[df_btg_view["Conta"].astype(str).isin(contas_selecionadas)]
 
-        # Filtro de Carteira (Múltipla Seleção)
         if "Carteira" in df_btg_view.columns:
             carteiras_disponiveis = sorted([str(c) for c in df_btg_view["Carteira"].dropna().unique()])
             carteiras_selecionadas = st.sidebar.multiselect("Filtrar por Carteira", carteiras_disponiveis, key="cart_btg_sel")
             if carteiras_selecionadas:
                 df_btg_view = df_btg_view[df_btg_view["Carteira"].astype(str).isin(carteiras_selecionadas)]
 
-        # Filtro de Status (Múltipla Seleção)
         if "Status" in df_btg_view.columns:
             status_disponiveis = sorted([str(s) for s in df_btg_view["Status"].dropna().unique()])
             status_selecionados = st.sidebar.multiselect("Filtrar por Status", status_disponiveis, key="status_btg_sel")
@@ -253,6 +266,5 @@ if not contratos_df.empty:
 
 else:
     st.warning("Nenhum dado encontrado. Verifique se os arquivos Excel estão na pasta.")
-
 
 
