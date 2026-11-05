@@ -96,7 +96,6 @@ def carregar_dados():
                     produto = str(row.get("Produto", "")).strip().upper()
                     mercado = str(row.get("Mercado", "")).strip().lower()
 
-                    # Regras de unificação e renomeação solicitadas
                     if "TESOURO DIRETO" in submercado:
                         return "Tesouro Direto"
                     elif "TITULO PUBLICO" in submercado or "TÍTULO PÚBLICO" in submercado:
@@ -104,14 +103,11 @@ def carregar_dados():
                     elif "PRIVADO" in submercado:
                         return "CrPr"
                     
-                    # Novas regras para LC (LCI, LCA, LCD) e LF (LF, LFSC, LFSN)
-                    # Verificando tanto no Sub Mercado quanto no Produto
                     alvos_lc = ["LCI", "LCA", "LCD"]
                     if any(item in submercado or item in produto for item in alvos_lc):
                         return "LC"
                         
                     alvos_lf = ["LFSC", "LFSN", "LF"]
-                    # Evitar falso positivo com LFT checando termos exatos ou isolados
                     if submercado in alvos_lf or produto in alvos_lf or any(f" {item} " in f" {submercado} " for item in alvos_lf):
                         return "LF"
                     
@@ -145,9 +141,31 @@ def carregar_dados():
                     fill_value=0
                 ).reset_index()
 
-                # Removendo colunas indesejadas (nan, None, Valor em Trânsito) do pivot
+                # Removendo colunas indesejadas
                 colunas_para_remover = [c for c in btg_pos_pivot.columns if pd.isna(c) or str(c).lower() in ["nan", "none", "valor em trânsito", "valor em transito"]]
                 btg_pos_pivot = btg_pos_pivot.drop(columns=colunas_para_remover, errors="ignore")
+
+                # =========================
+                # AGRUPAR COLUNAS EM "Outros"
+                # =========================
+                colunas_para_agrupar = [
+                    "Conta Corrente", "COE", "Criptoativos", 
+                    "Derivativos", "Fundos Cetipados", "OPCAO", "Tesouro Direto"
+                ]
+                # Encontrar quais dessas colunas realmente existem no pivot
+                cols_existentes = [c for c in colunas_para_agrupar if c in btg_pos_pivot.columns]
+                
+                if cols_existentes:
+                    # Somar as colunas e criar a coluna "Outros"
+                    btg_pos_pivot["Outros"] = btg_pos_pivot[cols_existentes].sum(axis=1)
+                    # Remover as colunas individuais originais
+                    btg_pos_pivot = btg_pos_pivot.drop(columns=cols_existentes)
+
+                    # Garantir que "Outros" fique no final (junto com Conta_Limpa)
+                    conta_limpa_col = btg_pos_pivot.pop("Conta_Limpa")
+                    outros_col = btg_pos_pivot.pop("Outros")
+                    btg_pos_pivot["Conta_Limpa"] = conta_limpa_col
+                    btg_pos_pivot["Outros"] = outros_col
 
         except Exception as e:
             st.warning(f"Aviso ao ler Posição BTG: {e}")
@@ -179,7 +197,7 @@ if not contratos_df.empty:
                 df_btg_view[col] = df_btg_view[col].fillna(0)
 
         # -------------------------
-        # FILTROS LATERAIS (Múltipla Seleção: Conta, Carteira e Status)
+        # FILTROS LATERAIS
         # -------------------------
         st.sidebar.header("Filtros BTG")
 
@@ -217,7 +235,7 @@ if not contratos_df.empty:
         st.dataframe(df_exibir_btg, use_container_width=True)
 
         # -------------------------
-        # GRÁFICO DE BARRAS (Fundo preto, barras azuis, eixo Y em Milhões, espaçamento fixo)
+        # GRÁFICO DE BARRAS
         # -------------------------
         if colunas_posicao:
             st.markdown("### 📊 Consolidado de Valor Bruto por Mercado/Produto")
@@ -254,8 +272,46 @@ if not contratos_df.empty:
 
                 plt.tight_layout()
                 st.pyplot(fig)
+
+                # Legenda explicativa para a coluna "Outros"
+                st.markdown(
+                    "> **ℹ️ Legenda da categoria 'Outros':** A coluna *Outros* consolida os valores de: "
+                    "*Conta Corrente, COE, Criptoativos, Derivativos, Fundos Cetipados, OPCAO e Tesouro Direto*."
+                )
+
+                # -------------------------
+                # GRÁFICO DE PIZZA (Porcentagem de cada coluna / todo)
+                # -------------------------
+                st.markdown("### 🥧 Distribuição Percentual por Categoria")
+                
+                # Filtrar apenas valores maiores que 0 para o gráfico de pizza não poluir
+                soma_pizza = soma_posicoes[soma_posicoes > 0]
+
+                if not soma_pizza.empty:
+                    fig_pie, ax_pie = plt.subplots(figsize=(10, 6))
+                    fig_pie.patch.set_facecolor("#0e1117")
+                    ax_pie.set_facecolor("#0e1117")
+
+                    # Gerar gráfico de pizza com porcentagens
+                    wedges, texts, autotexts = ax_pie.pie(
+                        soma_pizza.values,
+                        labels=soma_pizza.index,
+                        autopct='%1.1f%%',
+                        startangle=140,
+                        textprops=dict(color="white", fontsize=9)
+                    )
+
+                    # Ajustar cor dos textos das fatias
+                    for autotext in autotexts:
+                        autotext.set_color('white')
+                        autotext.set_fontsize(8)
+
+                    ax_pie.set_title("Participação Percentual por Categoria", color="white", fontsize=12, pad=15)
+                    
+                    plt.tight_layout()
+                    st.pyplot(fig_pie)
             else:
-                st.info("Não há valores numéricos nas colunas de posição para exibir no gráfico com os filtros atuais.")
+                st.info("Não há valores numéricos nas colunas de posição para exibir nos gráficos com os filtros atuais.")
 
     # -------------------------
     # ABA XP
@@ -279,4 +335,3 @@ if not contratos_df.empty:
 
 else:
     st.warning("Nenhum dado encontrado. Verifique se os arquivos Excel estão na pasta.")
-
