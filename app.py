@@ -288,7 +288,7 @@ def carregar_dados():
                 from functools import reduce
                 xp_pos_pivot = reduce(lambda left, right: pd.merge(left, right, on="Conta_Limpa", how="outer"), dfs_por_aba).fillna(0)
                 
-                # Unifica quaisquer colunas duplicadas ou variantes de Fundos (Fundos_X, Fundos_Y, etc.) em uma única coluna "Fundos"
+                # Unifica quaisquer colunas duplicadas ou variantes de Fundos em uma única coluna "Fundos"
                 cols_fundos_encontradas = [c for c in xp_pos_pivot.columns if str(c).lower() in ["fundos", "fundos_x", "fundos_y", "fnd"]]
                 if cols_fundos_encontradas:
                     xp_pos_pivot["Fundos"] = xp_pos_pivot[cols_fundos_encontradas].sum(axis=1)
@@ -438,7 +438,7 @@ if not contratos_df.empty:
                         autotext.set_color('white')
                         autotext.set_fontsize(7.5)
 
-                    ax_pie.legend(
+                    legend_pie = ax_pie.legend(
                         wedges, 
                         soma_pizza.index,
                         title="Categorias",
@@ -449,6 +449,7 @@ if not contratos_df.empty:
                         labelcolor="white",
                         fontsize=8
                     )
+                    legend_pie.get_title().set_color('white')
 
                     ax_pie.set_title("Participação Percentual por Categoria", color="white", fontsize=11, pad=12)
                     plt.tight_layout()
@@ -489,7 +490,7 @@ if not contratos_df.empty:
                             )
                             ax_venc.set_title("Valor Bruto dos Vencimentos por Mês (R$ Milhões)", color="white", fontsize=12, pad=15)
                             ax_venc.set_ylabel("Valor Bruto (R$ Milhões)", color="white", fontsize=10)
-                            plt.xticks(rotation=90, ha="center", color="white", fontsize=8)
+                            plt.xticks(rotation=95, ha="center", color="white", fontsize=8)
                             ax_venc.tick_params(colors="white")
                             ax_venc.xaxis.label.set_color("white")
                             ax_venc.yaxis.label.set_color("white")
@@ -611,16 +612,18 @@ if not contratos_df.empty:
                     fig_pie_xp.patch.set_facecolor("#0e1117")
                     ax_pie_xp.set_facecolor("#0e1117")
 
-                    cores_neutras_xp = [
-                        "#ff7f0e", "#ffbb78", "#aec7e8", "#1f77b4", 
-                        "#ff9896", "#98df8a", "#c5b0d5", "#c49c94", "#f7b6d2"
+                    # Paleta de cores suaves, pastéis e distintas (menos chamativas)
+                    cores_suaves_xp = [
+                        "#4e79a7", "#f28e2b", "#e15759", "#76b7b2", 
+                        "#59a14f", "#edc948", "#b07aa1", "#ff9da7", 
+                        "#9c755f", "#bab0ac", "#86bcb6", "#e1974c", "#849ba8"
                     ]
 
                     wedges_xp, texts_xp, autotexts_xp = ax_pie_xp.pie(
                         soma_pizza_xp.values,
                         autopct='%1.1f%%',
                         startangle=140,
-                        colors=cores_neutras_xp[:len(soma_pizza_xp)],
+                        colors=cores_suaves_xp[:len(soma_pizza_xp)],
                         textprops=dict(color="white", fontsize=8),
                         pctdistance=0.75
                     )
@@ -629,7 +632,7 @@ if not contratos_df.empty:
                         autotext.set_color('white')
                         autotext.set_fontsize(7.5)
 
-                    ax_pie_xp.legend(
+                    legend_pie_xp = ax_pie_xp.legend(
                         wedges_xp, 
                         soma_pizza_xp.index,
                         title="Categorias XP",
@@ -640,6 +643,8 @@ if not contratos_df.empty:
                         labelcolor="white",
                         fontsize=8
                     )
+                    # Define o título da legenda em branco explicitamente
+                    legend_pie_xp.get_title().set_color('white')
 
                     ax_pie_xp.set_title("Participação Percentual por Categoria (XP)", color="white", fontsize=11, pad=12)
                     plt.tight_layout()
