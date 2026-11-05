@@ -255,7 +255,7 @@ def carregar_dados():
 
                         dfs_globais.append(df_aba)
 
-                        # Tratamento detalhado da Renda Fixa e inclusão de FND em Fundos
+                        # Tratamento da Renda Fixa e unificação de Fundos (incluindo Fundos_X, Fundos_Y e FND)
                         if aba_nome == "Renda Fixa" and "Categoria" in df_aba.columns:
                             def classificar_rf(row):
                                 cat_str = str(row.get("Categoria", "")).strip().upper()
@@ -265,7 +265,7 @@ def carregar_dados():
                                     return "CrPr"
                                 elif cat_str in ["LCA", "LCI", "LCD"]:
                                     return "LC"
-                                elif cat_str == "FND":
+                                elif cat_str in ["FND", "FUNDOS"]:
                                     return "Fundos"
                                 elif cat_str in ["LFT", "NTN-B", "NTN-F"]:
                                     return "Títulos Públicos"
@@ -275,7 +275,7 @@ def carregar_dados():
                             df_aba["Categoria_RF"] = df_aba.apply(classificar_rf, axis=1)
                             df_res_rf = df_aba.groupby(["Conta_Limpa", "Categoria_RF"])["Valor_Calculado"].sum().unstack(fill_value=0).reset_index()
                             dfs_por_aba.append(df_res_rf)
-                        elif aba_nome == "Fundos":
+                        elif aba_nome in ["Fundos", "Fundos_X", "Fundos_Y"]:
                             df_res_aba = df_aba.groupby("Conta_Limpa")["Valor_Calculado"].sum().reset_index()
                             df_res_aba.rename(columns={"Valor_Calculado": "Fundos"}, inplace=True)
                             dfs_por_aba.append(df_res_aba)
@@ -286,14 +286,14 @@ def carregar_dados():
 
             if dfs_por_aba:
                 from functools import reduce
-                # Agrupa colunas duplicadas que possam vir de abas diferentes (ex: Fundos e FND da Renda Fixa) somando seus valores
                 xp_pos_pivot = reduce(lambda left, right: pd.merge(left, right, on="Conta_Limpa", how="outer"), dfs_por_aba).fillna(0)
                 
-                # Se houver colunas repetidas (ex: duas colunas 'Fundos'), soma ambas em uma só
-                if "Fundos" in xp_pos_pivot.columns and list(xp_pos_pivot.columns).count("Fundos") > 1:
-                    fundos_cols = [c for c in xp_pos_pivot.columns if c == "Fundos"]
-                    xp_pos_pivot["Fundos"] = xp_pos_pivot[fundos_cols].sum(axis=1)
-                    xp_pos_pivot = xp_pos_pivot.loc[:, ~xp_pos_pivot.columns.duplicated()]
+                # Unifica quaisquer colunas duplicadas ou variantes de Fundos (Fundos_X, Fundos_Y, etc.) em uma única coluna "Fundos"
+                cols_fundos_encontradas = [c for c in xp_pos_pivot.columns if str(c).lower() in ["fundos", "fundos_x", "fundos_y", "fnd"]]
+                if cols_fundos_encontradas:
+                    xp_pos_pivot["Fundos"] = xp_pos_pivot[cols_fundos_encontradas].sum(axis=1)
+                    cols_para_remover = [c for c in cols_fundos_encontradas if c != "Fundos"]
+                    xp_pos_pivot = xp_pos_pivot.drop(columns=cols_para_remover, errors="ignore")
 
             if dfs_globais:
                 posicao_global_xp = pd.concat(dfs_globais, ignore_index=True)
