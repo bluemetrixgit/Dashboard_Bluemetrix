@@ -238,7 +238,7 @@ def carregar_dados():
                             else:
                                 df_aba["Valor_Calculado"] = 0
 
-                        # Mapear DataVencimento especificamente para Coe, Renda Fixa e Tesouro Direto
+                        # Mapear DataVencimento com conversão robusta para datetime
                         if aba_nome in ["Coe", "Renda Fixa", "Tesouro Direto"]:
                             col_venc_encontrada = None
                             for c in df_aba.columns:
@@ -510,14 +510,12 @@ if not contratos_df.empty:
         st.sidebar.markdown("---")
         st.sidebar.header("Filtro Vencimentos")
         
-        # Extrair opções estritamente da coluna "Categoria" da aba "Renda Fixa" (com fallbacks de segurança)
         produtos_xp_disp = []
         if not posicao_global_xp.empty:
             df_rf_apenas = posicao_global_xp[posicao_global_xp["Aba_Origem"] == "Renda Fixa"]
             if "Categoria" in df_rf_apenas.columns:
                 produtos_xp_disp = sorted([str(p) for p in df_rf_apenas["Categoria"].dropna().unique()])
             
-            # Se por acaso a aba Renda Fixa não tiver a coluna Categoria, busca nas outras abas permitidas
             if not produtos_xp_disp:
                 df_venc_opcoes = posicao_global_xp[posicao_global_xp["Aba_Origem"].isin(["Renda Fixa", "Coe", "Tesouro Direto"])]
                 for col_prod in ["Categoria", "Produto", "Ativo", "SubMercado"]:
@@ -620,13 +618,13 @@ if not contratos_df.empty:
                     df_venc_xp = posicao_global_xp[posicao_global_xp["Aba_Origem"].isin(["Renda Fixa", "Coe", "Tesouro Direto"])].copy()
                     
                     if produtos_xp_sel:
-                        # Filtra utilizando a coluna Categoria prioritariamente ou demais colunas de identificação
                         col_filtragem = "Categoria" if "Categoria" in df_venc_xp.columns else next((c for c in ["Produto", "Ativo", "SubMercado"] if c in df_venc_xp.columns), None)
                         if col_filtragem:
                             df_venc_xp = df_venc_xp[df_venc_xp[col_filtragem].astype(str).isin(produtos_xp_sel)]
 
                     if "Data_Vencimento_Calculada" in df_venc_xp.columns:
-                        df_venc_xp["Data_Vencimento"] = df_venc_xp["Data_Vencimento_Calculada"]
+                        # Conversão explícita forçada para datetime para evitar conflitos de comparação de tipos
+                        df_venc_xp["Data_Vencimento"] = pd.to_datetime(df_venc_xp["Data_Vencimento_Calculada"], errors="coerce")
                         df_venc_xp = df_venc_xp.dropna(subset=["Data_Vencimento"])
 
                         data_inicio = pd.Timestamp.now().normalize()
