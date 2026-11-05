@@ -37,9 +37,9 @@ def formatar_real(valor):
     )
 
 # =========================
-# CARREGAR E PROCESSAR DADOS
+# CARREGAR E PROCESSAR DADOS (COM CACHE INTELIGENTE)
 # =========================
-
+@st.cache_data
 def carregar_dados():
     colunas_contrato = [
         "Corretora",
@@ -152,16 +152,12 @@ def carregar_dados():
                     "Conta Corrente", "COE", "Criptoativos", 
                     "Derivativos", "Fundos Cetipados", "OPCAO", "Tesouro Direto"
                 ]
-                # Encontrar quais dessas colunas realmente existem no pivot
                 cols_existentes = [c for c in colunas_para_agrupar if c in btg_pos_pivot.columns]
                 
                 if cols_existentes:
-                    # Somar as colunas e criar a coluna "Outros"
                     btg_pos_pivot["Outros"] = btg_pos_pivot[cols_existentes].sum(axis=1)
-                    # Remover as colunas individuais originais
                     btg_pos_pivot = btg_pos_pivot.drop(columns=cols_existentes)
 
-                    # Garantir que "Outros" fique no final (junto com Conta_Limpa)
                     conta_limpa_col = btg_pos_pivot.pop("Conta_Limpa")
                     outros_col = btg_pos_pivot.pop("Outros")
                     btg_pos_pivot["Conta_Limpa"] = conta_limpa_col
@@ -273,7 +269,6 @@ if not contratos_df.empty:
                 plt.tight_layout()
                 st.pyplot(fig)
 
-                # Legenda explicativa para a coluna "Outros"
                 st.markdown(
                     "> **ℹ️ Legenda da categoria 'Outros':** A coluna *Outros* consolida os valores de: "
                     "*Conta Corrente, COE, Criptoativos, Derivativos, Fundos Cetipados, OPCAO e Tesouro Direto*."
@@ -287,7 +282,6 @@ if not contratos_df.empty:
                 soma_pizza = soma_posicoes[soma_posicoes > 0]
 
                 if not soma_pizza.empty:
-                    # Tamanho compacto
                     fig_pie, ax_pie = plt.subplots(figsize=(7, 4))
                     fig_pie.patch.set_facecolor("#0e1117")
                     ax_pie.set_facecolor("#0e1117")
@@ -297,7 +291,6 @@ if not contratos_df.empty:
                         "#5c6b73", "#3a506b", "#4a5568", "#2d3748", "#4a607a"
                     ]
 
-                    # Geramos a pizza sem os rótulos diretos nas fatias para evitar poluição
                     wedges, texts, autotexts = ax_pie.pie(
                         soma_pizza.values,
                         autopct='%1.1f%%',
@@ -311,7 +304,6 @@ if not contratos_df.empty:
                         autotext.set_color('white')
                         autotext.set_fontsize(7.5)
 
-                    # Adicionando uma legenda lateral organizada e separada
                     ax_pie.legend(
                         wedges, 
                         soma_pizza.index,
@@ -328,6 +320,9 @@ if not contratos_df.empty:
                     
                     plt.tight_layout()
                     st.pyplot(fig_pie)
+            else:
+                st.info("Não há valores numéricos nas colunas de posição para exibir no gráfico com os filtros atuais.")
+
     # -------------------------
     # ABA XP
     # -------------------------
