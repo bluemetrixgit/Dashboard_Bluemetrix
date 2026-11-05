@@ -86,6 +86,20 @@ def carregar_dados():
 
         contratos_geral = pd.concat([df_btg[cols_btg], df_xp[cols_xp]], ignore_index=True)
 
+        # -------------------------
+        # EXCLUSÃO: Status Encerrado ou Vazio (None/NaN)
+        # -------------------------
+        if "Status" in contratos_geral.columns:
+            # Remove nulos/vazios e o status "Encerrado" (ignorando maiúsculas/minúsculas)
+            contratos_geral = contratos_geral.dropna(subset=["Status"])
+            contratos_geral = contratos_geral[
+                contratos_geral["Status"].astype(str).str.strip().str.lower() != "encerrado"
+            ]
+            # Remove também strings vazias que possam ter ficado
+            contratos_geral = contratos_geral[
+                contratos_geral["Status"].astype(str).str.strip() != ""
+            ]
+
         if "Conta" in contratos_geral.columns:
             contratos_geral["Conta_Limpa"] = limpar_conta(contratos_geral["Conta"])
     except Exception as e:
@@ -255,7 +269,7 @@ def carregar_dados():
 
                         dfs_globais.append(df_aba)
 
-                        # Tratamento da Renda Fixa e unificação de Fundos (incluindo Fundos_X, Fundos_Y e FND)
+                        # Tratamento da Renda Fixa e unificação de Fundos
                         if aba_nome == "Renda Fixa" and "Categoria" in df_aba.columns:
                             def classificar_rf(row):
                                 cat_str = str(row.get("Categoria", "")).strip().upper()
@@ -288,7 +302,6 @@ def carregar_dados():
                 from functools import reduce
                 xp_pos_pivot = reduce(lambda left, right: pd.merge(left, right, on="Conta_Limpa", how="outer"), dfs_por_aba).fillna(0)
                 
-                # Unifica quaisquer colunas duplicadas ou variantes de Fundos em uma única coluna "Fundos"
                 cols_fundos_encontradas = [c for c in xp_pos_pivot.columns if str(c).lower() in ["fundos", "fundos_x", "fundos_y", "fnd"]]
                 if cols_fundos_encontradas:
                     xp_pos_pivot["Fundos"] = xp_pos_pivot[cols_fundos_encontradas].sum(axis=1)
@@ -490,7 +503,7 @@ if not contratos_df.empty:
                             )
                             ax_venc.set_title("Valor Bruto dos Vencimentos por Mês (R$ Milhões)", color="white", fontsize=12, pad=15)
                             ax_venc.set_ylabel("Valor Bruto (R$ Milhões)", color="white", fontsize=10)
-                            plt.xticks(rotation=95, ha="center", color="white", fontsize=8)
+                            plt.xticks(rotation=90, ha="center", color="white", fontsize=8)
                             ax_venc.tick_params(colors="white")
                             ax_venc.xaxis.label.set_color("white")
                             ax_venc.yaxis.label.set_color("white")
@@ -612,7 +625,6 @@ if not contratos_df.empty:
                     fig_pie_xp.patch.set_facecolor("#0e1117")
                     ax_pie_xp.set_facecolor("#0e1117")
 
-                    # Paleta de cores suaves, pastéis e distintas (menos chamativas)
                     cores_suaves_xp = [
                         "#4e79a7", "#f28e2b", "#e15759", "#76b7b2", 
                         "#59a14f", "#edc948", "#b07aa1", "#ff9da7", 
@@ -643,7 +655,6 @@ if not contratos_df.empty:
                         labelcolor="white",
                         fontsize=8
                     )
-                    # Define o título da legenda em branco explicitamente
                     legend_pie_xp.get_title().set_color('white')
 
                     ax_pie_xp.set_title("Participação Percentual por Categoria (XP)", color="white", fontsize=11, pad=12)
