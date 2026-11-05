@@ -263,389 +263,382 @@ def carregar_dados():
 contratos_df, btg_pos_pivot, posicao_global_btg, xp_pos_pivot, posicao_global_xp = carregar_dados()
 
 if not contratos_df.empty:
-    # Seletor de Corretora na Barra Lateral para alternar os filtros dinamicamente
-    st.sidebar.title("navegação")
+    # Navegação centralizada na barra lateral: ao alterar aqui, o menu e os filtros mudam juntos perfeitamente
+    st.sidebar.title("Navegação")
     corretora_selecionada = st.sidebar.radio("Selecione a Corretora", ["BTG", "XP"])
-
     st.sidebar.markdown("---")
 
-    aba_btg, aba_xp = st.tabs(["BTG", "XP"])
-
-    # Forçar sincronização visual caso queira usar abas principais ou radio
-    # Vamos manter os dois sincronizados permitindo controle limpo na sidebar:
     if corretora_selecionada == "BTG":
         # =========================================================================
-        # ABA BTG
+        # SEÇÃO BTG
         # =========================================================================
-        with aba_btg:
-            st.subheader("🔵 Corretora BTG - Contratos & Posições")
+        st.subheader("🔵 Corretora BTG - Contratos & Posições")
 
-            df_btg_view = contratos_df[contratos_df["Corretora"] == "BTG"].copy()
+        df_btg_view = contratos_df[contratos_df["Corretora"] == "BTG"].copy()
 
-            colunas_posicao = []
-            if not btg_pos_pivot.empty:
-                df_btg_view = df_btg_view.merge(btg_pos_pivot, on="Conta_Limpa", how="left")
-                colunas_posicao = [c for c in btg_pos_pivot.columns if c != "Conta_Limpa"]
-                for col in colunas_posicao:
-                    df_btg_view[col] = df_btg_view[col].fillna(0)
+        colunas_posicao = []
+        if not btg_pos_pivot.empty:
+            df_btg_view = df_btg_view.merge(btg_pos_pivot, on="Conta_Limpa", how="left")
+            colunas_posicao = [c for c in btg_pos_pivot.columns if c != "Conta_Limpa"]
+            for col in colunas_posicao:
+                df_btg_view[col] = df_btg_view[col].fillna(0)
 
-            st.sidebar.header("Filtros BTG")
+        st.sidebar.header("Filtros BTG")
 
-            contas_selecionadas = []
-            carteiras_selecionadas = []
-            status_selecionados = []
-            produtos_selecionados = []
+        contas_selecionadas = []
+        carteiras_selecionadas = []
+        status_selecionados = []
+        produtos_selecionados = []
 
-            if "Conta" in df_btg_view.columns:
-                contas_disponiveis = sorted([str(c) for c in df_btg_view["Conta"].dropna().unique()])
-                contas_selecionadas = st.sidebar.multiselect("Filtrar por Conta", contas_disponiveis, key="conta_btg_sel")
-                if contas_selecionadas:
-                    df_btg_view = df_btg_view[df_btg_view["Conta"].astype(str).isin(contas_selecionadas)]
+        if "Conta" in df_btg_view.columns:
+            contas_disponiveis = sorted([str(c) for c in df_btg_view["Conta"].dropna().unique()])
+            contas_selecionadas = st.sidebar.multiselect("Filtrar por Conta", contas_disponiveis, key="conta_btg_sel")
+            if contas_selecionadas:
+                df_btg_view = df_btg_view[df_btg_view["Conta"].astype(str).isin(contas_selecionadas)]
 
-            if "Carteira" in df_btg_view.columns:
-                carteiras_disponiveis = sorted([str(c) for c in df_btg_view["Carteira"].dropna().unique()])
-                carteiras_selecionadas = st.sidebar.multiselect("Filtrar por Carteira", carteiras_disponiveis, key="cart_btg_sel")
-                if carteiras_selecionadas:
-                    df_btg_view = df_btg_view[df_btg_view["Carteira"].astype(str).isin(carteiras_selecionadas)]
+        if "Carteira" in df_btg_view.columns:
+            carteiras_disponiveis = sorted([str(c) for c in df_btg_view["Carteira"].dropna().unique()])
+            carteiras_selecionadas = st.sidebar.multiselect("Filtrar por Carteira", carteiras_disponiveis, key="cart_btg_sel")
+            if carteiras_selecionadas:
+                df_btg_view = df_btg_view[df_btg_view["Carteira"].astype(str).isin(carteiras_selecionadas)]
 
-            if "Status" in df_btg_view.columns:
-                status_disponiveis = sorted([str(s) for s in df_btg_view["Status"].dropna().unique()])
-                status_selecionados = st.sidebar.multiselect("Filtrar por Status", status_disponiveis, key="status_btg_sel")
-                if status_selecionados:
-                    df_btg_view = df_btg_view[df_btg_view["Status"].astype(str).isin(status_selecionados)]
+        if "Status" in df_btg_view.columns:
+            status_disponiveis = sorted([str(s) for s in df_btg_view["Status"].dropna().unique()])
+            status_selecionados = st.sidebar.multiselect("Filtrar por Status", status_disponiveis, key="status_btg_sel")
+            if status_selecionados:
+                df_btg_view = df_btg_view[df_btg_view["Status"].astype(str).isin(status_selecionados)]
 
-            st.sidebar.markdown("---")
-            st.sidebar.header("Filtro Vencimentos")
-            produtos_disponiveis = []
-            if not posicao_global_btg.empty and "Produto" in posicao_global_btg.columns:
-                produtos_disponiveis = sorted([str(p) for p in posicao_global_btg["Produto"].dropna().unique()])
-            
-            produtos_selecionados = st.sidebar.multiselect("Filtrar por Produto", produtos_disponiveis, key="venc_prod_sel_btg")
+        st.sidebar.markdown("---")
+        st.sidebar.header("Filtro Vencimentos")
+        produtos_disponiveis = []
+        if not posicao_global_btg.empty and "Produto" in posicao_global_btg.columns:
+            produtos_disponiveis = sorted([str(p) for p in posicao_global_btg["Produto"].dropna().unique()])
+        
+        produtos_selecionados = st.sidebar.multiselect("Filtrar por Produto", produtos_disponiveis, key="venc_prod_sel_btg")
 
-            st.metric("Total de Contratos (BTG)", len(df_btg_view))
+        st.metric("Total de Contratos (BTG)", len(df_btg_view))
 
-            df_exibir_btg = df_btg_view.copy()
-            if not btg_pos_pivot.empty:
-                for col in colunas_posicao:
-                    if col in df_exibir_btg.columns:
-                        df_exibir_btg[col] = df_exibir_btg[col].apply(formatar_real)
+        df_exibir_btg = df_btg_view.copy()
+        if not btg_pos_pivot.empty:
+            for col in colunas_posicao:
+                if col in df_exibir_btg.columns:
+                    df_exibir_btg[col] = df_exibir_btg[col].apply(formatar_real)
 
-            if "Conta_Limpa" in df_exibir_btg.columns:
-                df_exibir_btg = df_exibir_btg.drop(columns=["Conta_Limpa"])
+        if "Conta_Limpa" in df_exibir_btg.columns:
+            df_exibir_btg = df_exibir_btg.drop(columns=["Conta_Limpa"])
 
-            st.dataframe(df_exibir_btg, use_container_width=True)
+        st.dataframe(df_exibir_btg, use_container_width=True)
 
-            if colunas_posicao:
-                st.markdown("### 📊 Consolidado de Valor Bruto por Mercado/Produto (BTG)")
-                soma_posicoes = df_btg_view[colunas_posicao].sum() / 1e6
+        if colunas_posicao:
+            st.markdown("### 📊 Consolidado de Valor Bruto por Mercado/Produto (BTG)")
+            soma_posicoes = df_btg_view[colunas_posicao].sum() / 1e6
 
-                if not soma_posicoes.empty and soma_posicoes.sum() > 0:
-                    fig, ax = plt.subplots(figsize=(12, 5))
-                    fig.patch.set_facecolor("#0e1117")
-                    ax.set_facecolor("#0e1117")
+            if not soma_posicoes.empty and soma_posicoes.sum() > 0:
+                fig, ax = plt.subplots(figsize=(12, 5))
+                fig.patch.set_facecolor("#0e1117")
+                ax.set_facecolor("#0e1117")
 
-                    ax.bar(
-                        soma_posicoes.index,
-                        soma_posicoes.values,
-                        color="#1f77b4",
-                        edgecolor="#ffffff",
-                        linewidth=0.5,
-                        width=0.6
+                ax.bar(
+                    soma_posicoes.index,
+                    soma_posicoes.values,
+                    color="#1f77b4",
+                    edgecolor="#ffffff",
+                    linewidth=0.5,
+                    width=0.6
+                )
+
+                ax.set_title("Valor Bruto por Produto / Sub Mercado (R$ Milhões)", color="white", fontsize=12, pad=15)
+                ax.set_ylabel("Valor Bruto (R$ Milhões)", color="white", fontsize=10)
+                plt.xticks(rotation=45, ha="right", color="white", fontsize=9)
+                ax.tick_params(colors="white")
+                ax.xaxis.label.set_color("white")
+                ax.yaxis.label.set_color("white")
+
+                for spine in ax.spines.values():
+                    spine.set_edgecolor("white")
+
+                ax.grid(True, linestyle="--", alpha=0.2, color="white")
+                plt.tight_layout()
+                st.pyplot(fig)
+
+                st.markdown(
+                    "> **ℹ️ Legenda da categoria 'Outros':** A coluna *Outros* consolida os valores de: "
+                    "*Conta Corrente, COE, Criptoativos, Derivativos, Fundos Cetipados, OPCAO e Tesouro Direto*."
+                )
+
+                st.markdown("### 🥧 Distribuição Percentual por Categoria (BTG)")
+                soma_pizza = soma_posicoes[soma_posicoes > 0]
+
+                if not soma_pizza.empty:
+                    fig_pie, ax_pie = plt.subplots(figsize=(7, 4))
+                    fig_pie.patch.set_facecolor("#0e1117")
+                    ax_pie.set_facecolor("#0e1117")
+
+                    cores_neutras = [
+                        "#1f77b4", "#4682b4", "#5f9ea0", "#708090", 
+                        "#5c6b73", "#3a506b", "#4a5568", "#2d3748", "#4a607a"
+                    ]
+
+                    wedges, texts, autotexts = ax_pie.pie(
+                        soma_pizza.values,
+                        autopct='%1.1f%%',
+                        startangle=140,
+                        colors=cores_neutras[:len(soma_pizza)],
+                        textprops=dict(color="white", fontsize=8),
+                        pctdistance=0.75
                     )
 
-                    ax.set_title("Valor Bruto por Produto / Sub Mercado (R$ Milhões)", color="white", fontsize=12, pad=15)
-                    ax.set_ylabel("Valor Bruto (R$ Milhões)", color="white", fontsize=10)
-                    plt.xticks(rotation=45, ha="right", color="white", fontsize=9)
-                    ax.tick_params(colors="white")
-                    ax.xaxis.label.set_color("white")
-                    ax.yaxis.label.set_color("white")
+                    for autotext in autotexts:
+                        autotext.set_color('white')
+                        autotext.set_fontsize(7.5)
 
-                    for spine in ax.spines.values():
-                        spine.set_edgecolor("white")
+                    ax_pie.legend(
+                        wedges, 
+                        soma_pizza.index,
+                        title="Categorias",
+                        loc="center left",
+                        bbox_to_anchor=(1, 0, 0.5, 1),
+                        facecolor="#161b22",
+                        edgecolor="white",
+                        labelcolor="white",
+                        fontsize=8
+                    )
 
-                    ax.grid(True, linestyle="--", alpha=0.2, color="white")
+                    ax_pie.set_title("Participação Percentual por Categoria", color="white", fontsize=11, pad=12)
                     plt.tight_layout()
-                    st.pyplot(fig)
+                    st.pyplot(fig_pie)
 
-                    st.markdown(
-                        "> **ℹ️ Legenda da categoria 'Outros':** A coluna *Outros* consolida os valores de: "
-                        "*Conta Corrente, COE, Criptoativos, Derivativos, Fundos Cetipados, OPCAO e Tesouro Direto*."
-                    )
+                st.markdown("### 📅 Vencimentos Mensais - BTG (Até Dezembro de 2030)")
+                if not posicao_global_btg.empty:
+                    df_venc = posicao_global_btg.copy()
+                    if produtos_selecionados:
+                        df_venc = df_venc[df_venc["Produto"].astype(str).isin(produtos_selecionados)]
 
-                    st.markdown("### 🥧 Distribuição Percentual por Categoria (BTG)")
-                    soma_pizza = soma_posicoes[soma_posicoes > 0]
+                    col_venc = next((c for c in df_venc.columns if "venc" in c.lower()), None)
+                    if col_venc:
+                        df_venc["Data_Vencimento"] = pd.to_datetime(df_venc[col_venc], errors="coerce")
+                        df_venc = df_venc.dropna(subset=["Data_Vencimento"])
 
-                    if not soma_pizza.empty:
-                        fig_pie, ax_pie = plt.subplots(figsize=(7, 4))
-                        fig_pie.patch.set_facecolor("#0e1117")
-                        ax_pie.set_facecolor("#0e1117")
+                        data_inicio = pd.Timestamp.now().normalize()
+                        data_fim = pd.to_datetime("2030-12-31")
+                        df_venc = df_venc[(df_venc["Data_Vencimento"] >= data_inicio) & (df_venc["Data_Vencimento"] <= data_fim)]
 
-                        cores_neutras = [
-                            "#1f77b4", "#4682b4", "#5f9ea0", "#708090", 
-                            "#5c6b73", "#3a506b", "#4a5568", "#2d3748", "#4a607a"
-                        ]
+                        if not df_venc.empty:
+                            df_venc["Ano_Mes"] = df_venc["Data_Vencimento"].dt.to_period("M").astype(str)
+                            venc_agrupado = df_venc.groupby("Ano_Mes")["Valor_Bruto_Num"].sum() / 1e6
+                            idx_completo = pd.period_range(start=data_inicio.strftime("%Y-%m"), end="2030-12", freq="M").astype(str)
+                            venc_agrupado = venc_agrupado.reindex(idx_completo, fill_value=0)
 
-                        wedges, texts, autotexts = ax_pie.pie(
-                            soma_pizza.values,
-                            autopct='%1.1f%%',
-                            startangle=140,
-                            colors=cores_neutras[:len(soma_pizza)],
-                            textprops=dict(color="white", fontsize=8),
-                            pctdistance=0.75
-                        )
+                            fig_venc, ax_venc = plt.subplots(figsize=(14, 5))
+                            fig_venc.patch.set_facecolor("#0e1117")
+                            ax_venc.set_facecolor("#0e1117")
 
-                        for autotext in autotexts:
-                            autotext.set_color('white')
-                            autotext.set_fontsize(7.5)
-
-                        ax_pie.legend(
-                            wedges, 
-                            soma_pizza.index,
-                            title="Categorias",
-                            loc="center left",
-                            bbox_to_anchor=(1, 0, 0.5, 1),
-                            facecolor="#161b22",
-                            edgecolor="white",
-                            labelcolor="white",
-                            fontsize=8
-                        )
-
-                        ax_pie.set_title("Participação Percentual por Categoria", color="white", fontsize=11, pad=12)
-                        plt.tight_layout()
-                        st.pyplot(fig_pie)
-
-                    st.markdown("### 📅 Vencimentos Mensais - BTG (Até Dezembro de 2030)")
-                    if not posicao_global_btg.empty:
-                        df_venc = posicao_global_btg.copy()
-                        if produtos_selecionados:
-                            df_venc = df_venc[df_venc["Produto"].astype(str).isin(produtos_selecionados)]
-
-                        col_venc = next((c for c in df_venc.columns if "venc" in c.lower()), None)
-                        if col_venc:
-                            df_venc["Data_Vencimento"] = pd.to_datetime(df_venc[col_venc], errors="coerce")
-                            df_venc = df_venc.dropna(subset=["Data_Vencimento"])
-
-                            data_inicio = pd.Timestamp.now().normalize()
-                            data_fim = pd.to_datetime("2030-12-31")
-                            df_venc = df_venc[(df_venc["Data_Vencimento"] >= data_inicio) & (df_venc["Data_Vencimento"] <= data_fim)]
-
-                            if not df_venc.empty:
-                                df_venc["Ano_Mes"] = df_venc["Data_Vencimento"].dt.to_period("M").astype(str)
-                                venc_agrupado = df_venc.groupby("Ano_Mes")["Valor_Bruto_Num"].sum() / 1e6
-                                idx_completo = pd.period_range(start=data_inicio.strftime("%Y-%m"), end="2030-12", freq="M").astype(str)
-                                venc_agrupado = venc_agrupado.reindex(idx_completo, fill_value=0)
-
-                                fig_venc, ax_venc = plt.subplots(figsize=(14, 5))
-                                fig_venc.patch.set_facecolor("#0e1117")
-                                ax_venc.set_facecolor("#0e1117")
-
-                                ax_venc.bar(
-                                    venc_agrupado.index,
-                                    venc_agrupado.values,
-                                    color="#2ca02c",
-                                    edgecolor="#ffffff",
-                                    linewidth=0.5,
-                                    width=0.7
-                                )
-                                ax_venc.set_title("Valor Bruto dos Vencimentos por Mês (R$ Milhões)", color="white", fontsize=12, pad=15)
-                                ax_venc.set_ylabel("Valor Bruto (R$ Milhões)", color="white", fontsize=10)
-                                plt.xticks(rotation=90, ha="center", color="white", fontsize=8)
-                                ax_venc.tick_params(colors="white")
-                                ax_venc.xaxis.label.set_color("white")
-                                ax_venc.yaxis.label.set_color("white")
-                                for spine in ax_venc.spines.values():
-                                    spine.set_edgecolor("white")
-                                ax_venc.grid(True, linestyle="--", alpha=0.2, color="white")
-                                plt.tight_layout()
-                                st.pyplot(fig_venc)
+                            ax_venc.bar(
+                                venc_agrupado.index,
+                                venc_agrupado.values,
+                                color="#2ca02c",
+                                edgecolor="#ffffff",
+                                linewidth=0.5,
+                                width=0.7
+                            )
+                            ax_venc.set_title("Valor Bruto dos Vencimentos por Mês (R$ Milhões)", color="white", fontsize=12, pad=15)
+                            ax_venc.set_ylabel("Valor Bruto (R$ Milhões)", color="white", fontsize=10)
+                            plt.xticks(rotation=90, ha="center", color="white", fontsize=8)
+                            ax_venc.tick_params(colors="white")
+                            ax_venc.xaxis.label.set_color("white")
+                            ax_venc.yaxis.label.set_color("white")
+                            for spine in ax_venc.spines.values():
+                                spine.set_edgecolor("white")
+                            ax_venc.grid(True, linestyle="--", alpha=0.2, color="white")
+                            plt.tight_layout()
+                            st.pyplot(fig_venc)
 
     else:
         # =========================================================================
-        # ABA XP
+        # SEÇÃO XP
         # =========================================================================
-        with aba_xp:
-            st.subheader("🟡 Corretora XP - Contratos & Posições")
+        st.subheader("🟡 Corretora XP - Contratos & Posições")
 
-            df_xp_view = contratos_df[contratos_df["Corretora"] == "XP"].copy()
+        df_xp_view = contratos_df[contratos_df["Corretora"] == "XP"].copy()
 
-            colunas_posicao_xp = []
-            if not xp_pos_pivot.empty:
-                df_xp_view = df_xp_view.merge(xp_pos_pivot, on="Conta_Limpa", how="left")
-                colunas_posicao_xp = [c for c in xp_pos_pivot.columns if c != "Conta_Limpa"]
-                for col in colunas_posicao_xp:
-                    df_xp_view[col] = df_xp_view[col].fillna(0)
+        colunas_posicao_xp = []
+        if not xp_pos_pivot.empty:
+            df_xp_view = df_xp_view.merge(xp_pos_pivot, on="Conta_Limpa", how="left")
+            colunas_posicao_xp = [c for c in xp_pos_pivot.columns if c != "Conta_Limpa"]
+            for col in colunas_posicao_xp:
+                df_xp_view[col] = df_xp_view[col].fillna(0)
 
-            st.sidebar.header("Filtros XP")
+        st.sidebar.header("Filtros XP")
 
-            contas_xp_sel = []
-            carteiras_xp_sel = []
-            status_xp_sel = []
-            produtos_xp_sel = []
+        contas_xp_sel = []
+        carteiras_xp_sel = []
+        status_xp_sel = []
+        produtos_xp_sel = []
 
-            if "Conta" in df_xp_view.columns:
-                contas_xp_disp = sorted([str(c) for c in df_xp_view["Conta"].dropna().unique()])
-                contas_xp_sel = st.sidebar.multiselect("Filtrar por Conta", contas_xp_disp, key="conta_xp_sel")
-                if contas_xp_sel:
-                    df_xp_view = df_xp_view[df_xp_view["Conta"].astype(str).isin(contas_xp_sel)]
+        if "Conta" in df_xp_view.columns:
+            contas_xp_disp = sorted([str(c) for c in df_xp_view["Conta"].dropna().unique()])
+            contas_xp_sel = st.sidebar.multiselect("Filtrar por Conta", contas_xp_disp, key="conta_xp_sel")
+            if contas_xp_sel:
+                df_xp_view = df_xp_view[df_xp_view["Conta"].astype(str).isin(contas_xp_sel)]
 
-            if "Carteira" in df_xp_view.columns:
-                carteiras_xp_disp = sorted([str(c) for c in df_xp_view["Carteira"].dropna().unique()])
-                carteiras_xp_sel = st.sidebar.multiselect("Filtrar por Carteira", carteiras_xp_disp, key="cart_xp_sel")
-                if carteiras_xp_sel:
-                    df_xp_view = df_xp_view[df_xp_view["Carteira"].astype(str).isin(carteiras_xp_sel)]
+        if "Carteira" in df_xp_view.columns:
+            carteiras_xp_disp = sorted([str(c) for c in df_xp_view["Carteira"].dropna().unique()])
+            carteiras_xp_sel = st.sidebar.multiselect("Filtrar por Carteira", carteiras_xp_disp, key="cart_xp_sel")
+            if carteiras_xp_sel:
+                df_xp_view = df_xp_view[df_xp_view["Carteira"].astype(str).isin(carteiras_xp_sel)]
 
-            if "Status" in df_xp_view.columns:
-                status_xp_disp = sorted([str(s) for s in df_xp_view["Status"].dropna().unique()])
-                status_xp_sel = st.sidebar.multiselect("Filtrar por Status", status_xp_disp, key="status_xp_sel")
-                if status_xp_sel:
-                    df_xp_view = df_xp_view[df_xp_view["Status"].astype(str).isin(status_xp_sel)]
+        if "Status" in df_xp_view.columns:
+            status_xp_disp = sorted([str(s) for s in df_xp_view["Status"].dropna().unique()])
+            status_xp_sel = st.sidebar.multiselect("Filtrar por Status", status_xp_disp, key="status_xp_sel")
+            if status_xp_sel:
+                df_xp_view = df_xp_view[df_xp_view["Status"].astype(str).isin(status_xp_sel)]
 
-            st.sidebar.markdown("---")
-            st.sidebar.header("Filtro Vencimentos")
-            produtos_xp_disp = []
-            if not posicao_global_xp.empty:
-                for col_prod in ["Produto", "Ativo", "SubMercado"]:
-                    if col_prod in posicao_global_xp.columns:
-                        produtos_xp_disp = sorted([str(p) for p in posicao_global_xp[col_prod].dropna().unique()])
-                        break
-            
-            produtos_xp_sel = st.sidebar.multiselect("Filtrar por Produto/Ativo", produtos_xp_disp, key="venc_prod_sel_xp")
+        st.sidebar.markdown("---")
+        st.sidebar.header("Filtro Vencimentos")
+        produtos_xp_disp = []
+        if not posicao_global_xp.empty:
+            for col_prod in ["Produto", "Ativo", "SubMercado"]:
+                if col_prod in posicao_global_xp.columns:
+                    produtos_xp_disp = sorted([str(p) for p in posicao_global_xp[col_prod].dropna().unique()])
+                    break
+        
+        produtos_xp_sel = st.sidebar.multiselect("Filtrar por Produto/Ativo", produtos_xp_disp, key="venc_prod_sel_xp")
 
-            st.metric("Total de Contratos (XP)", len(df_xp_view))
+        st.metric("Total de Contratos (XP)", len(df_xp_view))
 
-            df_exibir_xp = df_xp_view.copy()
-            if not xp_pos_pivot.empty:
-                for col in colunas_posicao_xp:
-                    if col in df_exibir_xp.columns:
-                        df_exibir_xp[col] = df_exibir_xp[col].apply(formatar_real)
+        df_exibir_xp = df_xp_view.copy()
+        if not xp_pos_pivot.empty:
+            for col in colunas_posicao_xp:
+                if col in df_exibir_xp.columns:
+                    df_exibir_xp[col] = df_exibir_xp[col].apply(formatar_real)
 
-            if "Conta_Limpa" in df_exibir_xp.columns:
-                df_exibir_xp = df_exibir_xp.drop(columns=["Conta_Limpa"])
+        if "Conta_Limpa" in df_exibir_xp.columns:
+            df_exibir_xp = df_exibir_xp.drop(columns=["Conta_Limpa"])
 
-            st.dataframe(df_exibir_xp, use_container_width=True)
+        st.dataframe(df_exibir_xp, use_container_width=True)
 
-            if colunas_posicao_xp:
-                st.markdown("### 📊 Consolidado por Abas/Produtos (XP)")
-                soma_pos_xp = df_xp_view[colunas_posicao_xp].sum() / 1e6
+        if colunas_posicao_xp:
+            st.markdown("### 📊 Consolidado por Abas/Produtos (XP)")
+            soma_pos_xp = df_xp_view[colunas_posicao_xp].sum() / 1e6
 
-                if not soma_pos_xp.empty and soma_pos_xp.sum() > 0:
-                    fig_xp, ax_xp = plt.subplots(figsize=(12, 5))
-                    fig_xp.patch.set_facecolor("#0e1117")
-                    ax_xp.set_facecolor("#0e1117")
+            if not soma_pos_xp.empty and soma_pos_xp.sum() > 0:
+                fig_xp, ax_xp = plt.subplots(figsize=(12, 5))
+                fig_xp.patch.set_facecolor("#0e1117")
+                ax_xp.set_facecolor("#0e1117")
 
-                    ax_xp.bar(
-                        soma_pos_xp.index,
-                        soma_pos_xp.values,
-                        color="#ff7f0e",
-                        edgecolor="#ffffff",
-                        linewidth=0.5,
-                        width=0.6
+                ax_xp.bar(
+                    soma_pos_xp.index,
+                    soma_pos_xp.values,
+                    color="#ff7f0e",
+                    edgecolor="#ffffff",
+                    linewidth=0.5,
+                    width=0.6
+                )
+
+                ax_xp.set_title("Valor Bruto por Aba / Produto - XP (R$ Milhões)", color="white", fontsize=12, pad=15)
+                ax_xp.set_ylabel("Valor Bruto (R$ Milhões)", color="white", fontsize=10)
+                plt.xticks(rotation=45, ha="right", color="white", fontsize=9)
+                ax_xp.tick_params(colors="white")
+                ax_xp.xaxis.label.set_color("white")
+                ax_xp.yaxis.label.set_color("white")
+
+                for spine in ax_xp.spines.values():
+                    spine.set_edgecolor("white")
+
+                ax_xp.grid(True, linestyle="--", alpha=0.2, color="white")
+                plt.tight_layout()
+                st.pyplot(fig_xp)
+
+                st.markdown("### 🥧 Distribuição Percentual por Categoria (XP)")
+                soma_pizza_xp = soma_pos_xp[soma_pos_xp > 0]
+
+                if not soma_pizza_xp.empty:
+                    fig_pie_xp, ax_pie_xp = plt.subplots(figsize=(7, 4))
+                    fig_pie_xp.patch.set_facecolor("#0e1117")
+                    ax_pie_xp.set_facecolor("#0e1117")
+
+                    cores_neutras_xp = [
+                        "#ff7f0e", "#ffbb78", "#aec7e8", "#1f77b4", 
+                        "#ff9896", "#98df8a", "#c5b0d5", "#c49c94", "#f7b6d2"
+                    ]
+
+                    wedges_xp, texts_xp, autotexts_xp = ax_pie_xp.pie(
+                        soma_pizza_xp.values,
+                        autopct='%1.1f%%',
+                        startangle=140,
+                        colors=cores_neutras_xp[:len(soma_pizza_xp)],
+                        textprops=dict(color="white", fontsize=8),
+                        pctdistance=0.75
                     )
 
-                    ax_xp.set_title("Valor Bruto por Aba / Produto - XP (R$ Milhões)", color="white", fontsize=12, pad=15)
-                    ax_xp.set_ylabel("Valor Bruto (R$ Milhões)", color="white", fontsize=10)
-                    plt.xticks(rotation=45, ha="right", color="white", fontsize=9)
-                    ax_xp.tick_params(colors="white")
-                    ax_xp.xaxis.label.set_color("white")
-                    ax_xp.yaxis.label.set_color("white")
+                    for autotext in autotexts_xp:
+                        autotext.set_color('white')
+                        autotext.set_fontsize(7.5)
 
-                    for spine in ax_xp.spines.values():
-                        spine.set_edgecolor("white")
+                    ax_pie_xp.legend(
+                        wedges_xp, 
+                        soma_pizza_xp.index,
+                        title="Categorias XP",
+                        loc="center left",
+                        bbox_to_anchor=(1, 0, 0.5, 1),
+                        facecolor="#161b22",
+                        edgecolor="white",
+                        labelcolor="white",
+                        fontsize=8
+                    )
 
-                    ax_xp.grid(True, linestyle="--", alpha=0.2, color="white")
+                    ax_pie_xp.set_title("Participação Percentual por Categoria (XP)", color="white", fontsize=11, pad=12)
                     plt.tight_layout()
-                    st.pyplot(fig_xp)
+                    st.pyplot(fig_pie_xp)
 
-                    st.markdown("### 🥧 Distribuição Percentual por Categoria (XP)")
-                    soma_pizza_xp = soma_pos_xp[soma_pos_xp > 0]
+                st.markdown("### 📅 Vencimentos Mensais - XP (Até Dezembro de 2030)")
+                if not posicao_global_xp.empty:
+                    df_venc_xp = posicao_global_xp.copy()
+                    
+                    if produtos_xp_sel:
+                        for col_prod in ["Produto", "Ativo", "SubMercado"]:
+                            if col_prod in df_venc_xp.columns:
+                                df_venc_xp = df_venc_xp[df_venc_xp[col_prod].astype(str).isin(produtos_xp_sel)]
+                                break
 
-                    if not soma_pizza_xp.empty:
-                        fig_pie_xp, ax_pie_xp = plt.subplots(figsize=(7, 4))
-                        fig_pie_xp.patch.set_facecolor("#0e1117")
-                        ax_pie_xp.set_facecolor("#0e1117")
+                    col_venc_xp = next((c for c in df_venc_xp.columns if "venc" in c.lower()), None)
+                    if col_venc_xp:
+                        df_venc_xp["Data_Vencimento"] = pd.to_datetime(df_venc_xp[col_venc_xp], errors="coerce")
+                        df_venc_xp = df_venc_xp.dropna(subset=["Data_Vencimento"])
 
-                        cores_neutras_xp = [
-                            "#ff7f0e", "#ffbb78", "#aec7e8", "#1f77b4", 
-                            "#ff9896", "#98df8a", "#c5b0d5", "#c49c94", "#f7b6d2"
-                        ]
+                        data_inicio = pd.Timestamp.now().normalize()
+                        data_fim = pd.to_datetime("2030-12-31")
+                        df_venc_xp = df_venc_xp[(df_venc_xp["Data_Vencimento"] >= data_inicio) & (df_venc_xp["Data_Vencimento"] <= data_fim)]
 
-                        wedges_xp, texts_xp, autotexts_xp = ax_pie_xp.pie(
-                            soma_pizza_xp.values,
-                            autopct='%1.1f%%',
-                            startangle=140,
-                            colors=cores_neutras_xp[:len(soma_pizza_xp)],
-                            textprops=dict(color="white", fontsize=8),
-                            pctdistance=0.75
-                        )
+                        if not df_venc_xp.empty:
+                            df_venc_xp["Ano_Mes"] = df_venc_xp["Data_Vencimento"].dt.to_period("M").astype(str)
+                            venc_agrupado_xp = df_venc_xp.groupby("Ano_Mes")["Valor_Calculado"].sum() / 1e6
+                            idx_completo_xp = pd.period_range(start=data_inicio.strftime("%Y-%m"), end="2030-12", freq="M").astype(str)
+                            venc_agrupado_xp = venc_agrupado_xp.reindex(idx_completo_xp, fill_value=0)
 
-                        for autotext in autotexts_xp:
-                            autotext.set_color('white')
-                            autotext.set_fontsize(7.5)
+                            fig_venc_xp, ax_venc_xp = plt.subplots(figsize=(14, 5))
+                            fig_venc_xp.patch.set_facecolor("#0e1117")
+                            ax_venc_xp.set_facecolor("#0e1117")
 
-                        ax_pie_xp.legend(
-                            wedges_xp, 
-                            soma_pizza_xp.index,
-                            title="Categorias XP",
-                            loc="center left",
-                            bbox_to_anchor=(1, 0, 0.5, 1),
-                            facecolor="#161b22",
-                            edgecolor="white",
-                            labelcolor="white",
-                            fontsize=8
-                        )
-
-                        ax_pie_xp.set_title("Participação Percentual por Categoria (XP)", color="white", fontsize=11, pad=12)
-                        plt.tight_layout()
-                        st.pyplot(fig_pie_xp)
-
-                    st.markdown("### 📅 Vencimentos Mensais - XP (Até Dezembro de 2030)")
-                    if not posicao_global_xp.empty:
-                        df_venc_xp = posicao_global_xp.copy()
-                        
-                        if produtos_xp_sel:
-                            for col_prod in ["Produto", "Ativo", "SubMercado"]:
-                                if col_prod in df_venc_xp.columns:
-                                    df_venc_xp = df_venc_xp[df_venc_xp[col_prod].astype(str).isin(produtos_xp_sel)]
-                                    break
-
-                        col_venc_xp = next((c for c in df_venc_xp.columns if "venc" in c.lower()), None)
-                        if col_venc_xp:
-                            df_venc_xp["Data_Vencimento"] = pd.to_datetime(df_venc_xp[col_venc_xp], errors="coerce")
-                            df_venc_xp = df_venc_xp.dropna(subset=["Data_Vencimento"])
-
-                            data_inicio = pd.Timestamp.now().normalize()
-                            data_fim = pd.to_datetime("2030-12-31")
-                            df_venc_xp = df_venc_xp[(df_venc_xp["Data_Vencimento"] >= data_inicio) & (df_venc_xp["Data_Vencimento"] <= data_fim)]
-
-                            if not df_venc_xp.empty:
-                                df_venc_xp["Ano_Mes"] = df_venc_xp["Data_Vencimento"].dt.to_period("M").astype(str)
-                                venc_agrupado_xp = df_venc_xp.groupby("Ano_Mes")["Valor_Calculado"].sum() / 1e6
-                                idx_completo_xp = pd.period_range(start=data_inicio.strftime("%Y-%m"), end="2030-12", freq="M").astype(str)
-                                venc_agrupado_xp = venc_agrupado_xp.reindex(idx_completo_xp, fill_value=0)
-
-                                fig_venc_xp, ax_venc_xp = plt.subplots(figsize=(14, 5))
-                                fig_venc_xp.patch.set_facecolor("#0e1117")
-                                ax_venc_xp.set_facecolor("#0e1117")
-
-                                ax_venc_xp.bar(
-                                    venc_agrupado_xp.index,
-                                    venc_agrupado_xp.values,
-                                    color="#ff7f0e",
-                                    edgecolor="#ffffff",
-                                    linewidth=0.5,
-                                    width=0.7
-                                )
-                                ax_venc_xp.set_title("Valor Bruto dos Vencimentos por Mês - XP (R$ Milhões)", color="white", fontsize=12, pad=15)
-                                ax_venc_xp.set_ylabel("Valor Bruto (R$ Milhões)", color="white", fontsize=10)
-                                plt.xticks(rotation=90, ha="center", color="white", fontsize=8)
-                                ax_venc_xp.tick_params(colors="white")
-                                ax_venc_xp.xaxis.label.set_color("white")
-                                ax_venc_xp.yaxis.label.set_color("white")
-                                for spine in ax_venc_xp.spines.values():
-                                    spine.set_edgecolor("white")
-                                ax_venc_xp.grid(True, linestyle="--", alpha=0.2, color="white")
-                                plt.tight_layout()
-                                st.pyplot(fig_venc_xp)
+                            ax_venc_xp.bar(
+                                venc_agrupado_xp.index,
+                                venc_agrupado_xp.values,
+                                color="#ff7f0e",
+                                edgecolor="#ffffff",
+                                linewidth=0.5,
+                                width=0.7
+                            )
+                            ax_venc_xp.set_title("Valor Bruto dos Vencimentos por Mês - XP (R$ Milhões)", color="white", fontsize=12, pad=15)
+                            ax_venc_xp.set_ylabel("Valor Bruto (R$ Milhões)", color="white", fontsize=10)
+                            plt.xticks(rotation=90, ha="center", color="white", fontsize=8)
+                            ax_venc_xp.tick_params(colors="white")
+                            ax_venc_xp.xaxis.label.set_color("white")
+                            ax_venc_xp.yaxis.label.set_color("white")
+                            for spine in ax_venc_xp.spines.values():
+                                spine.set_edgecolor("white")
+                            ax_venc_xp.grid(True, linestyle="--", alpha=0.2, color="white")
+                            plt.tight_layout()
+                            st.pyplot(fig_venc_xp)
 
 else:
     st.warning("Nenhum dado encontrado. Verifique se os arquivos Excel estão na pasta.")
