@@ -205,7 +205,7 @@ if not contratos_df.empty:
         st.dataframe(df_exibir_btg, use_container_width=True)
 
         # -------------------------
-        # GRÁFICO DE BARRAS (Fundo preto, barras azuis, eixo Y em Milhões)
+        # GRÁFICO DE BARRAS (Fundo preto, barras azuis, espaçamento ajustado)
         # -------------------------
         if colunas_posicao:
             st.markdown("### 📊 Consolidado de Valor Bruto por Mercado/Produto")
@@ -213,7 +213,8 @@ if not contratos_df.empty:
             soma_posicoes = df_btg_view[colunas_posicao].sum() / 1e6  # Convertido para Milhões
 
             if not soma_posicoes.empty and soma_posicoes.sum() > 0:
-                fig, ax = plt.subplots(figsize=(10, 4))
+                # Aumentamos a largura para dar mais espaço fixo entre as barras e nomes
+                fig, ax = plt.subplots(figsize=(12, 5))
 
                 fig.patch.set_facecolor("#0e1117")
                 ax.set_facecolor("#0e1117")
@@ -223,13 +224,16 @@ if not contratos_df.empty:
                     soma_posicoes.values,
                     color="#1f77b4",
                     edgecolor="#ffffff",
-                    linewidth=0.5
+                    linewidth=0.5,
+                    width=0.6  # Largura fixa da barra para dar respiro
                 )
 
-                ax.set_title("Valor Bruto por Produto / Sub Mercado (R$ Milhões)", color="white", fontsize=12, pad=12)
+                ax.set_title("Valor Bruto por Produto / Sub Mercado (R$ Milhões)", color="white", fontsize=12, pad=15)
                 ax.set_ylabel("Valor Bruto (R$ Milhões)", color="white", fontsize=10)
 
-                ax.tick_params(colors="white", rotation=45)
+                # Ajuste de rotação e alinhamento para legibilidade perfeita
+                plt.xticks(rotation=45, ha="right", color="white", fontsize=9)
+                ax.tick_params(colors="white")
                 ax.xaxis.label.set_color("white")
                 ax.yaxis.label.set_color("white")
 
@@ -242,7 +246,7 @@ if not contratos_df.empty:
                 st.pyplot(fig)
             else:
                 st.info("Não há valores numéricos nas colunas de posição para exibir no gráfico com os filtros atuais.")
-
+                
     # -------------------------
     # ABA XP
     # -------------------------
