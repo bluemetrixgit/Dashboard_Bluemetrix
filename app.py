@@ -82,6 +82,7 @@ def carregar_dados():
 
     path_pos_btg = "data/Posição.xlsx" if os.path.exists("data/Posição.xlsx") else "Posição.xlsx"
     btg_pos_pivot = pd.DataFrame()
+    posicao_global = pd.DataFrame()
 
     if os.path.exists(path_pos_btg):
         try:
@@ -133,6 +134,8 @@ def carregar_dados():
                 else:
                     posicao["Valor_Bruto_Num"] = pd.to_numeric(posicao[col_vb], errors="coerce").fillna(0)
 
+                posicao_global = posicao.copy()
+
                 btg_pos_pivot = posicao.pivot_table(
                     index="Conta_Limpa",
                     columns="Coluna_Mercado",
@@ -141,13 +144,9 @@ def carregar_dados():
                     fill_value=0
                 ).reset_index()
 
-                # Removendo colunas indesejadas
                 colunas_para_remover = [c for c in btg_pos_pivot.columns if pd.isna(c) or str(c).lower() in ["nan", "none", "valor em trânsito", "valor em transito"]]
                 btg_pos_pivot = btg_pos_pivot.drop(columns=colunas_para_remover, errors="ignore")
 
-                # =========================
-                # AGRUPAR COLUNAS EM "Outros"
-                # =========================
                 colunas_para_agrupar = [
                     "Conta Corrente", "COE", "Criptoativos", 
                     "Derivativos", "Fundos Cetipados", "OPCAO", "Tesouro Direto"
@@ -166,13 +165,13 @@ def carregar_dados():
         except Exception as e:
             st.warning(f"Aviso ao ler Posição BTG: {e}")
 
-    return contratos_geral, btg_pos_pivot
+    return contratos_geral, btg_pos_pivot, posicao_global
 
 # =========================
 # MONTAGEM DA INTERFACE
 # =========================
 
-contratos_df, btg_pos_pivot = carregar_dados()
+contratos_df, btg_pos_pivot, posicao_global = carregar_dados()
 
 if not contratos_df.empty:
     aba_btg, aba_xp = st.tabs(["BTG", "XP"])
@@ -215,6 +214,15 @@ if not contratos_df.empty:
             if status_selecionados:
                 df_btg_view = df_btg_view[df_btg_view["Status"].astype(str).isin(status_selecionados)]
 
+        # NOVO FILTRO APARTE: Filtro Vencimentos baseado em "Produto"
+        st.sidebar.markdown("---")
+        st.sidebar.header("Filtro Vencimentos")
+        produtos_disponiveis = []
+        if not posicao_global.empty and "Produto" in posicao_global.columns:
+            produtos_disponiveis = sorted([str(p) for p in posicao_global["Produto"].dropna().unique()])
+        
+        produtos_selecionados = st.sidebar.multiselect("Filtrar por Produto", produtos_disponiveis, key="venc_prod_sel")
+
         st.metric("Total de Contratos", len(df_btg_view))
 
         # Formatação Visual da Tabela
@@ -231,12 +239,12 @@ if not contratos_df.empty:
         st.dataframe(df_exibir_btg, use_container_width=True)
 
         # -------------------------
-        # GRÁFICO DE BARRAS
+        # GRÁFICO DE BARRAS POR MERCADO/PRODUTO
         # -------------------------
         if colunas_posicao:
             st.markdown("### 📊 Consolidado de Valor Bruto por Mercado/Produto")
 
-            soma_posicoes = df_btg_view[colunas_posicao].sum() / 1e6  # Convertido para Milhões
+            soma_posicoes = df_btg_view[colunas_posicao].sum() / 1e6  # Milhões
 
             if not soma_posicoes.empty and soma_posicoes.sum() > 0:
                 fig, ax = plt.subplots(figsize=(12, 5))
@@ -275,7 +283,7 @@ if not contratos_df.empty:
                 )
 
                 # -------------------------
-                # GRÁFICO DE PIZZA (Compacto e com Legenda Lateral Organizada)
+                # GRÁFICO DE PIZZA
                 # -------------------------
                 st.markdown("### 🥧 Distribuição Percentual por Categoria")
                 
@@ -320,6 +328,78 @@ if not contratos_df.empty:
                     
                     plt.tight_layout()
                     st.pyplot(fig_pie)
+
+                # ----------------------------------------------------
+                # GRÁFICO DE VENCIMENTOS MENSAIS (Até Dezembro de 2030)
+                # ----------------------------------------------------
+                st.markdown("### 📅 Vencimentos Mensais (Até Dezembro de 2030)")
+
+                if not posicao_global.empty:
+                    df_venc = posicao_global.copy()
+
+                    # Filtrar pelo produto selecionado no filtro aparte, se houver
+                    if produtos_selecionados:
+                        df_venc = df_venc[df_venc["Produto"].astype(str).isin(produtos_selecionados)]
+
+                    # Tentar encontrar a coluna de vencimento
+                    col_venc = None
+                    for c in df_venc.columns:
+                        if "venc" in c.lower():
+                            col_venc = c
+                            break
+
+                    if col_venc:
+                        df_venc["Data_Vencimento"] = pd.to_datetime(df_venc[col_venc], errors="coerce")
+                        df_venc = df_venc.dropna(subset=["Data_Vencimento"])
+
+                        # Filtrar de agora (2026) até Dezembro de 2030
+                        data_inicio = pd.Timestamp.now().normalize()
+                        data_fim = pd.to_datetime("2030-12-31")
+
+                        df_venc = df_venc[(df_venc["Data_Vencimento"] >= data_inicio) & (df_venc["Data_Vencimento"] <= data_fim)]
+
+                        if not df_venc.empty:
+                            df_venc["Ano_Mes"] = df_venc["Data_Vencimento"].dt.to_period("M").astype(str)
+                            
+                            venc_agrupado = df_venc.groupby("Ano_Mes")["Valor_Bruto_Num"].sum() / 1e6 # em Milhões
+
+                            # Criar range completo de meses até 2030-12 para garantir continuidade no eixo X
+                            idx_completo = pd.period_range(start=data_inicio.strftime("%Y-%m"), end="2030-12", freq="M").astype(str)
+                            venc_agrupado = venc_agrupado.reindex(idx_completo, fill_value=0)
+
+                            fig_venc, ax_venc = plt.subplots(figsize=(14, 5))
+                            fig_venc.patch.set_facecolor("#0e1117")
+                            ax_venc.set_facecolor("#0e1117")
+
+                            ax_venc.bar(
+                                venc_agrupado.index,
+                                venc_agrupado.values,
+                                color="#2ca02c", # Barras em tom verde/azul para vencimentos ou azul padrão
+                                edgecolor="#ffffff",
+                                linewidth=0.5,
+                                width=0.7
+                            )
+
+                            ax_venc.set_title("Valor Bruto dos Vencimentos por Mês (R$ Milhões)", color="white", fontsize=12, pad=15)
+                            ax_venc.set_ylabel("Valor Bruto (R$ Milhões)", color="white", fontsize=10)
+
+                            plt.xticks(rotation=90, ha="center", color="white", fontsize=8)
+                            ax_venc.tick_params(colors="white")
+                            ax_venc.xaxis.label.set_color("white")
+                            ax_venc.yaxis.label.set_color("white")
+
+                            for spine in ax_venc.spines.values():
+                                spine.set_edgecolor("white")
+
+                            ax_venc.grid(True, linestyle="--", alpha=0.2, color="white")
+
+                            plt.tight_layout()
+                            st.pyplot(fig_venc)
+                        else:
+                            st.info("Nenhum vencimento encontrado no período entre o mês atual e dezembro de 2030 para os filtros aplicados.")
+                    else:
+                        st.warning("A coluna de 'Vencimento' não foi encontrada na planilha de posições.")
+
             else:
                 st.info("Não há valores numéricos nas colunas de posição para exibir no gráfico com os filtros atuais.")
 
