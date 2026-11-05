@@ -280,39 +280,49 @@ if not contratos_df.empty:
                 )
 
                 # -------------------------
-                # GRÁFICO DE PIZZA (Reduzido e com cores neutras)
+                # GRÁFICO DE PIZZA (Compacto e com Legenda Lateral Organizada)
                 # -------------------------
                 st.markdown("### 🥧 Distribuição Percentual por Categoria")
                 
-                # Filtrar apenas valores maiores que 0 para o gráfico de pizza não poluir
                 soma_pizza = soma_posicoes[soma_posicoes > 0]
 
                 if not soma_pizza.empty:
-                    # Tamanho reduzido para ocupar menos espaço vertical
-                    fig_pie, ax_pie = plt.subplots(figsize=(8, 4.5))
+                    # Tamanho compacto
+                    fig_pie, ax_pie = plt.subplots(figsize=(7, 4))
                     fig_pie.patch.set_facecolor("#0e1117")
                     ax_pie.set_facecolor("#0e1117")
 
-                    # Paleta de cores mais neutras e corporativas (tons de azul escuro, ardósia e cinza metálico)
                     cores_neutras = [
                         "#1f77b4", "#4682b4", "#5f9ea0", "#708090", 
                         "#5c6b73", "#3a506b", "#4a5568", "#2d3748", "#4a607a"
                     ]
 
-                    # Gerar gráfico de pizza com porcentagens e cores neutras
+                    # Geramos a pizza sem os rótulos diretos nas fatias para evitar poluição
                     wedges, texts, autotexts = ax_pie.pie(
                         soma_pizza.values,
-                        labels=soma_pizza.index,
                         autopct='%1.1f%%',
                         startangle=140,
                         colors=cores_neutras[:len(soma_pizza)],
-                        textprops=dict(color="white", fontsize=8)
+                        textprops=dict(color="white", fontsize=8),
+                        pctdistance=0.75
                     )
 
-                    # Ajustar cor e tamanho dos textos das fatias
                     for autotext in autotexts:
                         autotext.set_color('white')
                         autotext.set_fontsize(7.5)
+
+                    # Adicionando uma legenda lateral organizada e separada
+                    ax_pie.legend(
+                        wedges, 
+                        soma_pizza.index,
+                        title="Categorias",
+                        loc="center left",
+                        bbox_to_anchor=(1, 0, 0.5, 1),
+                        facecolor="#161b22",
+                        edgecolor="white",
+                        labelcolor="white",
+                        fontsize=8
+                    )
 
                     ax_pie.set_title("Participação Percentual por Categoria", color="white", fontsize=11, pad=12)
                     
