@@ -88,10 +88,6 @@ def carregar_dados():
             posicao = pd.read_excel(path_pos_btg, sheet_name="Export", engine="openpyxl")
             posicao.columns = posicao.columns.str.strip()
 
-            # Excluir colunas NaN e 'Valor em Trânsito' se existirem
-            posicao = posicao.loc[:, ~posicao.columns.isna()]
-            posicao = posicao.loc[:, ~posicao.columns.str.contains("Valor em Trânsito|Valor em Transito", case=False, na=False)]
-
             if "Conta" in posicao.columns:
                 posicao["Conta_Limpa"] = limpar_conta(posicao["Conta"])
 
@@ -107,7 +103,6 @@ def carregar_dados():
                     elif "PRIVADO" in submercado:
                         return "CrPr"
                     
-                    # Regras padrão anteriores baseadas em Mercado / Produto / Sub Mercado
                     if "renda fixa" in mercado:
                         return str(row.get("Produto", "Outros RF"))
                     elif "renda variável" in mercado or "renda variavel" in mercado:
@@ -137,6 +132,10 @@ def carregar_dados():
                     aggfunc="sum",
                     fill_value=0
                 ).reset_index()
+
+                # Removendo colunas indesejadas (nan, None, Valor em Trânsito) do pivot
+                colunas_para_remover = [c for c in btg_pos_pivot.columns if pd.isna(c) or str(c).lower() in ["nan", "none", "valor em trânsito", "valor em transito"]]
+                btg_pos_pivot = btg_pos_pivot.drop(columns=colunas_para_remover, errors="ignore")
 
         except Exception as e:
             st.warning(f"Aviso ao ler Posição BTG: {e}")
@@ -266,5 +265,4 @@ if not contratos_df.empty:
 
 else:
     st.warning("Nenhum dado encontrado. Verifique se os arquivos Excel estão na pasta.")
-
 
