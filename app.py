@@ -69,7 +69,7 @@ def carregar_dados():
 
     if not os.path.exists(path_contratos):
         st.error(f"Arquivo não encontrado: {path_contratos}")
-        return pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+        return pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
     try:
         df_btg = pd.read_excel(path_contratos, sheet_name="BTG", header=1, engine="openpyxl")
@@ -90,7 +90,7 @@ def carregar_dados():
             contratos_geral["Conta_Limpa"] = limpar_conta(contratos_geral["Conta"])
     except Exception as e:
         st.error(f"Erro ao ler Controle de Contratos: {e}")
-        return pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+        return pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
     # -------------------------
     # POSIÇÃO BTG
@@ -104,8 +104,9 @@ def carregar_dados():
             posicao = pd.read_excel(path_pos_btg, sheet_name="Export", engine="openpyxl")
             posicao.columns = posicao.columns.str.strip()
 
-            if "Conta" in posicao.columns:
-                posicao["Conta_Limpa"] = limpar_conta(posicao["Conta"])
+            col_conta_btg = "CodigoCliente" if "CodigoCliente" in posicao.columns else "Conta"
+            if col_conta_btg in posicao.columns:
+                posicao["Conta_Limpa"] = limpar_conta(posicao[col_conta_btg])
 
                 def definir_coluna_btg(row):
                     submercado = str(row.get("Sub Mercado", "")).strip().upper()
@@ -171,11 +172,22 @@ def carregar_dados():
             st.warning(f"Aviso ao ler Posição BTG: {e}")
 
     # -------------------------
-    # POSIÇÃO XP (Abas e colunas específicas solicitadas)
+    # POSIÇÃO XP
     # -------------------------
-    path_pos_xp = "data/Posição XP.xlsx" if os.path.exists("data/Posição XP.xlsx") else "Posição XP.xlsx"
-    if not os.path.exists(path_pos_xp):
-        path_pos_xp = "data/Posicao_XP.xlsx" if os.path.exists("data/Posicao_XP.xlsx") else path_pos_btg
+    candidatos_xp = [
+        "data/relatório_posicoes_consolidada.xlsx",
+        "relatório_posicoes_consolidada.xlsx",
+        "data/relatorio_posicoes_consolidada.xlsx",
+        "relatorio_posicoes_consolidada.xlsx",
+        "data/Posição XP.xlsx",
+        "Posição XP.xlsx"
+    ]
+
+    path_pos_xp = None
+    for p in candidatos_xp:
+        if os.path.exists(p):
+            path_pos_xp = p
+            break
 
     xp_pos_pivot = pd.DataFrame()
     posicao_global_xp = pd.DataFrame()
@@ -193,50 +205,54 @@ def carregar_dados():
         "Proventos": "PrecoAtual",
         "Proventos Fundo Imob": "ValorLiquidoAtual",
         "Renda Fixa": "ValorFinanceiroBruto",
-        "Tesouro Direto": "ValorBruto"  
+        "Tesouro Direto": "ValorBruto"
     }
 
-    try:
-        xls = pd.ExcelFile(path_pos_xp, engine="openpyxl")
-        dfs_por_aba = []
-        dfs_globais = []
+    if path_pos_xp:
+        try:
+            xls = pd.ExcelFile(path_pos_xp, engine="openpyxl")
+            dfs_por_aba = []
+            dfs_globais = []
 
-        for aba_nome, col_alvo in abas_mapeamento_xp.items():
-            if aba_nome in xls.sheet_names:
-                df_aba = pd.read_excel(xls, sheet_name=aba_nome)
-                df_aba.columns = df_aba.columns.str.strip()
+            for aba_nome, col_alvo in abas_mapeamento_xp.items():
+                if aba_nome in xls.sheet_names:
+                    df_aba = pd.read_excel(xls, sheet_name=aba_nome)
+                    df_aba.columns = df_aba.columns.str.strip()
 
-                if "Conta" in df_aba.columns:
-                    df_aba["Conta_Limpa"] = limpar_conta(df_aba["Conta"])
-                    df_aba["Aba_Origem"] = aba_nome
+                    col_conta_xp = None
+                    for candidato in ["CodigoCliente", "Código do Cliente", "Codigo Cliente", "Conta"]:
+                        if candidato in df_aba.columns:
+                            col_conta_xp = candidato
+                            break
 
-                    # Limpar a coluna específica mapeada
-                    if col_alvo in df_aba.columns:
-                        df_aba["Valor_Calculado"] = limpar_coluna_numerica(df_aba[col_alvo])
-                    else:
-                        # Fallback caso o nome exato varie ligeiramente
-                        cands = [c for c in df_aba.columns if col_alvo.lower() in c.lower()]
-                        if cands:
-                            df_aba["Valor_Calculado"] = limpar_coluna_numerica(df_aba[cands[0]])
+                    if col_conta_xp:
+                        df_aba["Conta_Limpa"] = limpar_conta(df_aba[col_conta_xp])
+                        df_aba["Aba_Origem"] = aba_nome
+
+                        if col_alvo in df_aba.columns:
+                            df_aba["Valor_Calculado"] = limpar_coluna_numerica(df_aba[col_alvo])
                         else:
-                            df_aba["Valor_Calculado"] = 0
+                            cands = [c for c in df_aba.columns if col_alvo.lower() in c.lower()]
+                            if cands:
+                                df_aba["Valor_Calculado"] = limpar_coluna_numerica(df_aba[cands[0]])
+                            else:
+                                df_aba["Valor_Calculado"] = 0
 
-                    dfs_globais.append(df_aba)
+                        dfs_globais.append(df_aba)
 
-                    # Agrupar por conta para a tabela pivô
-                    df_res_aba = df_aba.groupby("Conta_Limpa")["Valor_Calculado"].sum().reset_index()
-                    df_res_aba.rename(columns={"Valor_Calculado": aba_nome}, inplace=True)
-                    dfs_por_aba.append(df_res_aba)
+                        df_res_aba = df_aba.groupby("Conta_Limpa")["Valor_Calculado"].sum().reset_index()
+                        df_res_aba.rename(columns={"Valor_Calculado": aba_nome}, inplace=True)
+                        dfs_por_aba.append(df_res_aba)
 
-        if dfs_por_aba:
-            from functools import reduce
-            xp_pos_pivot = reduce(lambda left, right: pd.merge(left, right, on="Conta_Limpa", how="outer"), dfs_por_aba).fillna(0)
+            if dfs_por_aba:
+                from functools import reduce
+                xp_pos_pivot = reduce(lambda left, right: pd.merge(left, right, on="Conta_Limpa", how="outer"), dfs_por_aba).fillna(0)
 
-        if dfs_globais:
-            posicao_global_xp = pd.concat(dfs_globais, ignore_index=True)
+            if dfs_globais:
+                posicao_global_xp = pd.concat(dfs_globais, ignore_index=True)
 
-    except Exception as e:
-        pass
+        except Exception as e:
+            st.warning(f"Aviso ao ler relatório de posições da XP: {e}")
 
     return contratos_geral, btg_pos_pivot, posicao_global_btg, xp_pos_pivot, posicao_global_xp
 
@@ -465,7 +481,6 @@ if not contratos_df.empty:
             if status_xp_sel:
                 df_xp_view = df_xp_view[df_xp_view["Status"].astype(str).isin(status_xp_sel)]
 
-        # Filtro Vencimentos Aparte para a XP (baseado na coluna Produto das abas mapeadas)
         st.sidebar.markdown("---")
         st.sidebar.header("Filtro Vencimentos (XP)")
         produtos_xp_disp = []
@@ -564,7 +579,6 @@ if not contratos_df.empty:
                     plt.tight_layout()
                     st.pyplot(fig_pie_xp)
 
-                # Gráfico de Vencimentos Mensais para a XP (Até Dezembro de 2030)
                 st.markdown("### 📅 Vencimentos Mensais - XP (Até Dezembro de 2030)")
                 if not posicao_global_xp.empty:
                     df_venc_xp = posicao_global_xp.copy()
