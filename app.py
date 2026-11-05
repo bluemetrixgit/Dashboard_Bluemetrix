@@ -238,7 +238,7 @@ def carregar_dados():
                             else:
                                 df_aba["Valor_Calculado"] = 0
 
-                        # Mapear DataVencimento especificamente para Coe, Renda Fixa e Tesouro Direto
+                        # Mapear DataVencimento para abas de vencimento
                         if aba_nome in ["Coe", "Renda Fixa", "Tesouro Direto"]:
                             col_venc_encontrada = None
                             for c in df_aba.columns:
@@ -255,13 +255,45 @@ def carregar_dados():
 
                         dfs_globais.append(df_aba)
 
-                        df_res_aba = df_aba.groupby("Conta_Limpa")["Valor_Calculado"].sum().reset_index()
-                        df_res_aba.rename(columns={"Valor_Calculado": aba_nome}, inplace=True)
-                        dfs_por_aba.append(df_res_aba)
+                        # Tratamento detalhado da Renda Fixa e inclusão de FND em Fundos
+                        if aba_nome == "Renda Fixa" and "Categoria" in df_aba.columns:
+                            def classificar_rf(row):
+                                cat_str = str(row.get("Categoria", "")).strip().upper()
+                                if cat_str == "CDB":
+                                    return "CDB"
+                                elif cat_str in ["CDCA", "CRI", "CRA", "DEB", "CPRF", "LF"]:
+                                    return "CrPr"
+                                elif cat_str in ["LCA", "LCI", "LCD"]:
+                                    return "LC"
+                                elif cat_str == "FND":
+                                    return "Fundos"
+                                elif cat_str in ["LFT", "NTN-B", "NTN-F"]:
+                                    return "Títulos Públicos"
+                                else:
+                                    return "Outros RF"
+
+                            df_aba["Categoria_RF"] = df_aba.apply(classificar_rf, axis=1)
+                            df_res_rf = df_aba.groupby(["Conta_Limpa", "Categoria_RF"])["Valor_Calculado"].sum().unstack(fill_value=0).reset_index()
+                            dfs_por_aba.append(df_res_rf)
+                        elif aba_nome == "Fundos":
+                            df_res_aba = df_aba.groupby("Conta_Limpa")["Valor_Calculado"].sum().reset_index()
+                            df_res_aba.rename(columns={"Valor_Calculado": "Fundos"}, inplace=True)
+                            dfs_por_aba.append(df_res_aba)
+                        else:
+                            df_res_aba = df_aba.groupby("Conta_Limpa")["Valor_Calculado"].sum().reset_index()
+                            df_res_aba.rename(columns={"Valor_Calculado": aba_nome}, inplace=True)
+                            dfs_por_aba.append(df_res_aba)
 
             if dfs_por_aba:
                 from functools import reduce
+                # Agrupa colunas duplicadas que possam vir de abas diferentes (ex: Fundos e FND da Renda Fixa) somando seus valores
                 xp_pos_pivot = reduce(lambda left, right: pd.merge(left, right, on="Conta_Limpa", how="outer"), dfs_por_aba).fillna(0)
+                
+                # Se houver colunas repetidas (ex: duas colunas 'Fundos'), soma ambas em uma só
+                if "Fundos" in xp_pos_pivot.columns and list(xp_pos_pivot.columns).count("Fundos") > 1:
+                    fundos_cols = [c for c in xp_pos_pivot.columns if c == "Fundos"]
+                    xp_pos_pivot["Fundos"] = xp_pos_pivot[fundos_cols].sum(axis=1)
+                    xp_pos_pivot = xp_pos_pivot.loc[:, ~xp_pos_pivot.columns.duplicated()]
 
             if dfs_globais:
                 posicao_global_xp = pd.concat(dfs_globais, ignore_index=True)
@@ -510,7 +542,6 @@ if not contratos_df.empty:
         st.sidebar.markdown("---")
         st.sidebar.header("Filtro Vencimentos")
         
-        # Extração focada estritamente na coluna 'Categoria' da aba 'Renda Fixa'
         produtos_xp_disp = []
         if not posicao_global_xp.empty:
             df_rf_apenas = posicao_global_xp[posicao_global_xp["Aba_Origem"] == "Renda Fixa"]
