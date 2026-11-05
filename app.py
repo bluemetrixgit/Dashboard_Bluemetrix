@@ -93,6 +93,7 @@ def carregar_dados():
 
                 def definir_coluna(row):
                     submercado = str(row.get("Sub Mercado", "")).strip().upper()
+                    produto = str(row.get("Produto", "")).strip().upper()
                     mercado = str(row.get("Mercado", "")).strip().lower()
 
                     # Regras de unificação e renomeação solicitadas
@@ -102,6 +103,17 @@ def carregar_dados():
                         return "Título Público"
                     elif "PRIVADO" in submercado:
                         return "CrPr"
+                    
+                    # Novas regras para LC (LCI, LCA, LCD) e LF (LF, LFSC, LFSN)
+                    # Verificando tanto no Sub Mercado quanto no Produto
+                    alvos_lc = ["LCI", "LCA", "LCD"]
+                    if any(item in submercado or item in produto for item in alvos_lc):
+                        return "LC"
+                        
+                    alvos_lf = ["LFSC", "LFSN", "LF"]
+                    # Evitar falso positivo com LFT checando termos exatos ou isolados
+                    if submercado in alvos_lf or produto in alvos_lf or any(f" {item} " in f" {submercado} " for item in alvos_lf):
+                        return "LF"
                     
                     if "renda fixa" in mercado:
                         return str(row.get("Produto", "Outros RF"))
@@ -205,7 +217,7 @@ if not contratos_df.empty:
         st.dataframe(df_exibir_btg, use_container_width=True)
 
         # -------------------------
-        # GRÁFICO DE BARRAS (Fundo preto, barras azuis, espaçamento ajustado)
+        # GRÁFICO DE BARRAS (Fundo preto, barras azuis, eixo Y em Milhões, espaçamento fixo)
         # -------------------------
         if colunas_posicao:
             st.markdown("### 📊 Consolidado de Valor Bruto por Mercado/Produto")
@@ -213,7 +225,6 @@ if not contratos_df.empty:
             soma_posicoes = df_btg_view[colunas_posicao].sum() / 1e6  # Convertido para Milhões
 
             if not soma_posicoes.empty and soma_posicoes.sum() > 0:
-                # Aumentamos a largura para dar mais espaço fixo entre as barras e nomes
                 fig, ax = plt.subplots(figsize=(12, 5))
 
                 fig.patch.set_facecolor("#0e1117")
@@ -225,13 +236,12 @@ if not contratos_df.empty:
                     color="#1f77b4",
                     edgecolor="#ffffff",
                     linewidth=0.5,
-                    width=0.6  # Largura fixa da barra para dar respiro
+                    width=0.6
                 )
 
                 ax.set_title("Valor Bruto por Produto / Sub Mercado (R$ Milhões)", color="white", fontsize=12, pad=15)
                 ax.set_ylabel("Valor Bruto (R$ Milhões)", color="white", fontsize=10)
 
-                # Ajuste de rotação e alinhamento para legibilidade perfeita
                 plt.xticks(rotation=45, ha="right", color="white", fontsize=9)
                 ax.tick_params(colors="white")
                 ax.xaxis.label.set_color("white")
@@ -246,7 +256,7 @@ if not contratos_df.empty:
                 st.pyplot(fig)
             else:
                 st.info("Não há valores numéricos nas colunas de posição para exibir no gráfico com os filtros atuais.")
-                
+
     # -------------------------
     # ABA XP
     # -------------------------
