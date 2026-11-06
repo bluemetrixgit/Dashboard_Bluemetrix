@@ -371,7 +371,6 @@ if not contratos_df.empty:
         colunas_posicao = []
         if not btg_pos_pivot.empty:
             df_btg_view_pos = df_base_corretora.merge(btg_pos_pivot, on="Conta_Limpa", how="left")
-            # Aplica os mesmos 3 filtros na visão de posições
             if status_selecionados:
                 df_btg_view_pos = df_btg_view_pos[df_btg_view_pos["Status"].astype(str).isin(status_selecionados)]
             if carteiras_selecionadas:
@@ -478,37 +477,59 @@ if not contratos_df.empty:
                     st.pyplot(fig_pie)
 
                 # =========================================================
-                # QUARTO GRÁFICO: DISPERSÃO (PLOTLY) COM OS 3 PRIMEIROS FILTROS
+                # QUARTO GRÁFICO: DISPERSÃO DINÂMICA SOBRE TODAS AS CARTEIRAS
                 # =========================================================
-                st.markdown("### 📉 Gráfico de Dispersão - Descolamento da Média (BTG)")
-                df_disp_btg = df_btg_view_pos.copy()
-                df_disp_btg["Valor_Total"] = df_disp_btg[colunas_posicao].sum(axis=1)
+                st.markdown("### 📉 Gráfico de Dispersão - Descolamento das Aplicações (BTG)")
                 
-                if not df_disp_btg.empty:
-                    media_val = df_disp_btg["Valor_Total"].mean()
-                    fig_scatter = px.scatter(
-                        df_disp_btg,
-                        x="Carteira",
-                        y="Valor_Total",
-                        color="Status",
-                        hover_data=["Conta"],
-                        title="Dispersão de Contas/Carteiras em relação à Média",
-                        labels={"Valor_Total": "Valor Total Bruto (R$)", "Carteira": "Carteira"}
+                # Base completa filtrada apenas pelos 3 primeiros filtros globais para mostrar todas as carteiras e contas ativas
+                df_disp_btg = btg_pos_pivot.merge(df_base_corretora[["Conta_Limpa", "Carteira", "Status", "Cliente"]], on="Conta_Limpa", how="inner")
+                if status_selecionados:
+                    df_disp_btg = df_disp_btg[df_disp_btg["Status"].astype(str).isin(status_selecionados)]
+                if carteiras_selecionadas:
+                    df_disp_btg = df_disp_btg[df_disp_btg["Carteira"].astype(str).isin(carteiras_selecionadas)]
+                if contas_selecionadas:
+                    df_disp_btg = df_disp_btg[df_disp_btg["Conta_Limpa"].isin(limpar_conta(pd.Series(contas_selecionadas)))]
+
+                if not df_disp_btg.empty and colunas_posicao:
+                    df_melt_btg = df_disp_btg.melt(
+                        id_vars=["Conta_Limpa", "Carteira", "Status", "Cliente"],
+                        value_vars=colunas_posicao,
+                        var_name="Tipo_Aplicacao",
+                        value_name="Valor_Aplicado"
                     )
-                    fig_scatter.add_hline(y=media_val, line_dash="dash", line_color="red", annotation_text=f"Média: R$ {media_val:,.2f}", annotation_position="top right")
-                    fig_scatter.update_layout(
-                        plot_bgcolor="#0e1117",
-                        paper_bgcolor="#0e1117",
-                        font=dict(color="white"),
-                        title_font=dict(color="white")
-                    )
-                    st.plotly_chart(fig_scatter, use_container_width=True)
+                    df_melt_btg = df_melt_btg[df_melt_btg["Valor_Aplicado"] > 0]
+
+                    if not df_melt_btg.empty:
+                        # Média geral de cada tipo de aplicação considerando todas as carteiras visíveis
+                        media_geral_aplicacao = df_melt_btg.groupby("Tipo_Aplicacao")["Valor_Aplicado"].mean().reset_index()
+                        media_geral_aplicacao.rename(columns={"Valor_Aplicado": "Media_Geral"}, inplace=True)
+                        
+                        df_melt_btg = df_melt_btg.merge(media_geral_aplicacao, on="Tipo_Aplicacao", how="left")
+                        df_melt_btg["Desvio_Media"] = (df_melt_btg["Valor_Aplicado"] - df_melt_btg["Media_Geral"]).abs()
+
+                        fig_scatter = px.scatter(
+                            df_melt_btg,
+                            x="Tipo_Aplicacao",
+                            y="Valor_Aplicado",
+                            color="Carteira",
+                            size="Desvio_Media",
+                            hover_data=["Conta_Limpa", "Cliente", "Status", "Media_Geral"],
+                            title="Dispersão de Aplicações por Carteira (Tamanho = Descolamento da Média Geral)",
+                            labels={"Tipo_Aplicacao": "Tipo de Aplicação", "Valor_Aplicado": "Valor Aplicado (R$)"}
+                        )
+                        fig_scatter.update_layout(
+                            plot_bgcolor="#0e1117",
+                            paper_bgcolor="#0e1117",
+                            font=dict(color="white"),
+                            title_font=dict(color="white"),
+                            xaxis=dict(tickangle=-45)
+                        )
+                        st.plotly_chart(fig_scatter, use_container_width=True)
 
                 st.markdown("### 📅 Vencimentos Mensais - BTG (Até Dezembro de 2030)")
                 if not posicao_global_btg.empty:
                     df_venc = posicao_global_btg.copy()
                     
-                    # Filtra contas/carteiras/status através do merge com o df_btg_view_pos filtrado pelos 3 primeiros filtros
                     contas_validas_venc = df_btg_view_pos["Conta_Limpa"].dropna().unique()
                     df_venc = df_venc[df_venc["Conta_Limpa"].isin(contas_validas_venc)]
 
@@ -715,31 +736,52 @@ if not contratos_df.empty:
                     st.pyplot(fig_pie_xp)
 
                 # =========================================================
-                # QUARTO GRÁFICO: DISPERSÃO (PLOTLY) COM OS 3 PRIMEIROS FILTROS (XP)
+                # QUARTO GRÁFICO: DISPERSÃO DINÂMICA SOBRE TODAS AS CARTEIRAS (XP)
                 # =========================================================
-                st.markdown("### 📉 Gráfico de Dispersão - Descolamento da Média (XP)")
-                df_disp_xp = df_xp_view_pos.copy()
-                df_disp_xp["Valor_Total"] = df_disp_xp[colunas_posicao_xp].sum(axis=1)
+                st.markdown("### 📉 Gráfico de Dispersão - Descolamento das Aplicações (XP)")
                 
-                if not df_disp_xp.empty:
-                    media_val_xp = df_disp_xp["Valor_Total"].mean()
-                    fig_scatter_xp = px.scatter(
-                        df_disp_xp,
-                        x="Carteira",
-                        y="Valor_Total",
-                        color="Status",
-                        hover_data=["Conta"],
-                        title="Dispersão de Contas/Carteiras em relação à Média",
-                        labels={"Valor_Total": "Valor Total Bruto (R$)", "Carteira": "Carteira"}
+                df_disp_xp = xp_pos_pivot.merge(df_base_corretora_xp[["Conta_Limpa", "Carteira", "Status", "Cliente"]], on="Conta_Limpa", how="inner")
+                if status_xp_sel:
+                    df_disp_xp = df_disp_xp[df_disp_xp["Status"].astype(str).isin(status_xp_sel)]
+                if carteiras_xp_sel:
+                    df_disp_xp = df_disp_xp[df_disp_xp["Carteira"].astype(str).isin(carteiras_xp_sel)]
+                if contas_xp_sel:
+                    df_disp_xp = df_disp_xp[df_disp_xp["Conta_Limpa"].isin(limpar_conta(pd.Series(contas_xp_sel)))]
+
+                if not df_disp_xp.empty and colunas_posicao_xp:
+                    df_melt_xp = df_disp_xp.melt(
+                        id_vars=["Conta_Limpa", "Carteira", "Status", "Cliente"],
+                        value_vars=colunas_posicao_xp,
+                        var_name="Tipo_Aplicacao",
+                        value_name="Valor_Aplicado"
                     )
-                    fig_scatter_xp.add_hline(y=media_val_xp, line_dash="dash", line_color="orange", annotation_text=f"Média: R$ {media_val_xp:,.2f}", annotation_position="top right")
-                    fig_scatter_xp.update_layout(
-                        plot_bgcolor="#0e1117",
-                        paper_bgcolor="#0e1117",
-                        font=dict(color="white"),
-                        title_font=dict(color="white")
-                    )
-                    st.plotly_chart(fig_scatter_xp, use_container_width=True)
+                    df_melt_xp = df_melt_xp[df_melt_xp["Valor_Aplicado"] > 0]
+
+                    if not df_melt_xp.empty:
+                        media_geral_aplicacao_xp = df_melt_xp.groupby("Tipo_Aplicacao")["Valor_Aplicado"].mean().reset_index()
+                        media_geral_aplicacao_xp.rename(columns={"Valor_Aplicado": "Media_Geral"}, inplace=True)
+                        
+                        df_melt_xp = df_melt_xp.merge(media_geral_aplicacao_xp, on="Tipo_Aplicacao", how="left")
+                        df_melt_xp["Desvio_Media"] = (df_melt_xp["Valor_Aplicado"] - df_melt_xp["Media_Geral"]).abs()
+
+                        fig_scatter_xp = px.scatter(
+                            df_melt_xp,
+                            x="Tipo_Aplicacao",
+                            y="Valor_Aplicado",
+                            color="Carteira",
+                            size="Desvio_Media",
+                            hover_data=["Conta_Limpa", "Cliente", "Status", "Media_Geral"],
+                            title="Dispersão de Aplicações por Carteira (Tamanho = Descolamento da Média Geral)",
+                            labels={"Tipo_Aplicacao": "Tipo de Aplicação", "Valor_Aplicado": "Valor Aplicado (R$)"}
+                        )
+                        fig_scatter_xp.update_layout(
+                            plot_bgcolor="#0e1117",
+                            paper_bgcolor="#0e1117",
+                            font=dict(color="white"),
+                            title_font=dict(color="white"),
+                            xaxis=dict(tickangle=-45)
+                        )
+                        st.plotly_chart(fig_scatter_xp, use_container_width=True)
 
                 st.markdown("### 📅 Vencimentos Mensais - XP (Até Dezembro de 2030)")
                 if not posicao_global_xp.empty:
