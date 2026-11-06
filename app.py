@@ -3,6 +3,7 @@ import pandas as pd
 import streamlit as st
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
+import plotly.express as px
 
 st.set_page_config(
     page_title="Dashboard Bluemetrix - Posição e Contratos",
@@ -90,12 +91,10 @@ def carregar_dados():
         # EXCLUSÃO: Status Encerrado ou Vazio (None/NaN)
         # -------------------------
         if "Status" in contratos_geral.columns:
-            # Remove nulos/vazios e o status "Encerrado" (ignorando maiúsculas/minúsculas)
             contratos_geral = contratos_geral.dropna(subset=["Status"])
             contratos_geral = contratos_geral[
                 contratos_geral["Status"].astype(str).str.strip().str.lower() != "encerrado"
             ]
-            # Remove também strings vazias que possam ter ficado
             contratos_geral = contratos_geral[
                 contratos_geral["Status"].astype(str).str.strip() != ""
             ]
@@ -252,7 +251,6 @@ def carregar_dados():
                             else:
                                 df_aba["Valor_Calculado"] = 0
 
-                        # Mapear DataVencimento para abas de vencimento
                         if aba_nome in ["Coe", "Renda Fixa", "Tesouro Direto"]:
                             col_venc_encontrada = None
                             for c in df_aba.columns:
@@ -269,7 +267,6 @@ def carregar_dados():
 
                         dfs_globais.append(df_aba)
 
-                        # Tratamento da Renda Fixa e unificação de Fundos
                         if aba_nome == "Renda Fixa" and "Categoria" in df_aba.columns:
                             def classificar_rf(row):
                                 cat_str = str(row.get("Categoria", "")).strip().upper()
@@ -333,52 +330,64 @@ if not contratos_df.empty:
         # =========================================================================
         st.subheader("🔵 Corretora BTG - Contratos & Posições")
 
-        df_btg_view = contratos_df[contratos_df["Corretora"] == "BTG"].copy()
-
-        colunas_posicao = []
-        if not btg_pos_pivot.empty:
-            df_btg_view = df_btg_view.merge(btg_pos_pivot, on="Conta_Limpa", how="left")
-            colunas_posicao = [c for c in btg_pos_pivot.columns if c != "Conta_Limpa"]
-            for col in colunas_posicao:
-                df_btg_view[col] = df_btg_view[col].fillna(0)
+        df_base_corretora = contratos_df[contratos_df["Corretora"] == "BTG"].copy()
 
         st.sidebar.header("Filtros BTG")
 
-        contas_selecionadas = []
-        carteiras_selecionadas = []
-        status_selecionados = []
-        produtos_selecionados = []
+        # 1. Filtro Status
+        status_disponiveis = sorted([str(s) for s in df_base_corretora["Status"].dropna().unique()]) if "Status" in df_base_corretora.columns else []
+        status_selecionados = st.sidebar.multiselect("Filtrar por Status", status_disponiveis, key="status_btg_sel")
+        
+        df_f1 = df_base_corretora.copy()
+        if status_selecionados:
+            df_f1 = df_f1[df_f1["Status"].astype(str).isin(status_selecionados)]
 
-        if "Conta" in df_btg_view.columns:
-            contas_disponiveis = sorted([str(c) for c in df_btg_view["Conta"].dropna().unique()])
-            contas_selecionadas = st.sidebar.multiselect("Filtrar por Conta", contas_disponiveis, key="conta_btg_sel")
-            if contas_selecionadas:
-                df_btg_view = df_btg_view[df_btg_view["Conta"].astype(str).isin(contas_selecionadas)]
+        # 2. Filtro Carteira (refletido pelo Status)
+        carteiras_disponiveis = sorted([str(c) for c in df_f1["Carteira"].dropna().unique()]) if "Carteira" in df_f1.columns else []
+        carteiras_selecionadas = st.sidebar.multiselect("Filtrar por Carteira", carteiras_disponiveis, key="cart_btg_sel")
+        
+        df_f2 = df_f1.copy()
+        if carteiras_selecionadas:
+            df_f2 = df_f2[df_f2["Carteira"].astype(str).isin(carteiras_selecionadas)]
 
-        if "Carteira" in df_btg_view.columns:
-            carteiras_disponiveis = sorted([str(c) for c in df_btg_view["Carteira"].dropna().unique()])
-            carteiras_selecionadas = st.sidebar.multiselect("Filtrar por Carteira", carteiras_disponiveis, key="cart_btg_sel")
-            if carteiras_selecionadas:
-                df_btg_view = df_btg_view[df_btg_view["Carteira"].astype(str).isin(carteiras_selecionadas)]
+        # 3. Filtro Conta (refletido por Status e Carteira)
+        contas_disponiveis = sorted([str(c) for c in df_f2["Conta"].dropna().unique()]) if "Conta" in df_f2.columns else []
+        contas_selecionadas = st.sidebar.multiselect("Filtrar por Conta", contas_disponiveis, key="conta_btg_sel")
+        
+        df_btg_view = df_f2.copy()
+        if contas_selecionadas:
+            df_btg_view = df_btg_view[df_btg_view["Conta"].astype(str).isin(contas_selecionadas)]
 
-        if "Status" in df_btg_view.columns:
-            status_disponiveis = sorted([str(s) for s in df_btg_view["Status"].dropna().unique()])
-            status_selecionados = st.sidebar.multiselect("Filtrar por Status", status_disponiveis, key="status_btg_sel")
-            if status_selecionados:
-                df_btg_view = df_btg_view[df_btg_view["Status"].astype(str).isin(status_selecionados)]
-
+        # 4. Filtro Vencimentos (apenas para vencimentos)
         st.sidebar.markdown("---")
         st.sidebar.header("Filtro Vencimentos")
         produtos_disponiveis = []
         if not posicao_global_btg.empty and "Produto" in posicao_global_btg.columns:
             produtos_disponiveis = sorted([str(p) for p in posicao_global_btg["Produto"].dropna().unique()])
-        
         produtos_selecionados = st.sidebar.multiselect("Filtrar por Produto", produtos_disponiveis, key="venc_prod_sel_btg")
 
         st.metric("Total de Contratos (BTG)", len(df_btg_view))
 
+        colunas_posicao = []
+        if not btg_pos_pivot.empty:
+            df_btg_view_pos = df_base_corretora.merge(btg_pos_pivot, on="Conta_Limpa", how="left")
+            # Aplica os mesmos 3 filtros na visão de posições
+            if status_selecionados:
+                df_btg_view_pos = df_btg_view_pos[df_btg_view_pos["Status"].astype(str).isin(status_selecionados)]
+            if carteiras_selecionadas:
+                df_btg_view_pos = df_btg_view_pos[df_btg_view_pos["Carteira"].astype(str).isin(carteiras_selecionadas)]
+            if contas_selecionadas:
+                df_btg_view_pos = df_btg_view_pos[df_btg_view_pos["Conta"].astype(str).isin(contas_selecionadas)]
+
+            colunas_posicao = [c for c in btg_pos_pivot.columns if c != "Conta_Limpa"]
+            for col in colunas_posicao:
+                df_btg_view_pos[col] = df_btg_view_pos[col].fillna(0)
+        else:
+            df_btg_view_pos = df_btg_view
+
         df_exibir_btg = df_btg_view.copy()
         if not btg_pos_pivot.empty:
+            df_exibir_btg = df_exibir_btg.merge(btg_pos_pivot, on="Conta_Limpa", how="left")
             for col in colunas_posicao:
                 if col in df_exibir_btg.columns:
                     df_exibir_btg[col] = df_exibir_btg[col].apply(formatar_real)
@@ -390,7 +399,7 @@ if not contratos_df.empty:
 
         if colunas_posicao:
             st.markdown("### 📊 Consolidado de Valor Bruto por Mercado/Produto (BTG)")
-            soma_posicoes = df_btg_view[colunas_posicao].sum() / 1e6
+            soma_posicoes = df_btg_view_pos[colunas_posicao].sum() / 1e6
 
             if not soma_posicoes.empty and soma_posicoes.sum() > 0:
                 fig, ax = plt.subplots(figsize=(12, 5))
@@ -468,9 +477,41 @@ if not contratos_df.empty:
                     plt.tight_layout()
                     st.pyplot(fig_pie)
 
+                # =========================================================
+                # QUARTO GRÁFICO: DISPERSÃO (PLOTLY) COM OS 3 PRIMEIROS FILTROS
+                # =========================================================
+                st.markdown("### 📉 Gráfico de Dispersão - Descolamento da Média (BTG)")
+                df_disp_btg = df_btg_view_pos.copy()
+                df_disp_btg["Valor_Total"] = df_disp_btg[colunas_posicao].sum(axis=1)
+                
+                if not df_disp_btg.empty:
+                    media_val = df_disp_btg["Valor_Total"].mean()
+                    fig_scatter = px.scatter(
+                        df_disp_btg,
+                        x="Carteira",
+                        y="Valor_Total",
+                        color="Status",
+                        hover_data=["Conta"],
+                        title="Dispersão de Contas/Carteiras em relação à Média",
+                        labels={"Valor_Total": "Valor Total Bruto (R$)", "Carteira": "Carteira"}
+                    )
+                    fig_scatter.add_hline(y=media_val, line_dash="dash", line_color="red", annotation_text=f"Média: R$ {media_val:,.2f}", annotation_position="top right")
+                    fig_scatter.update_layout(
+                        plot_bgcolor="#0e1117",
+                        paper_bgcolor="#0e1117",
+                        font=dict(color="white"),
+                        title_font=dict(color="white")
+                    )
+                    st.plotly_chart(fig_scatter, use_container_width=True)
+
                 st.markdown("### 📅 Vencimentos Mensais - BTG (Até Dezembro de 2030)")
                 if not posicao_global_btg.empty:
                     df_venc = posicao_global_btg.copy()
+                    
+                    # Filtra contas/carteiras/status através do merge com o df_btg_view_pos filtrado pelos 3 primeiros filtros
+                    contas_validas_venc = df_btg_view_pos["Conta_Limpa"].dropna().unique()
+                    df_venc = df_venc[df_venc["Conta_Limpa"].isin(contas_validas_venc)]
+
                     if produtos_selecionados:
                         df_venc = df_venc[df_venc["Produto"].astype(str).isin(produtos_selecionados)]
 
@@ -519,40 +560,35 @@ if not contratos_df.empty:
         # =========================================================================
         st.subheader("🟡 Corretora XP - Contratos & Posições")
 
-        df_xp_view = contratos_df[contratos_df["Corretora"] == "XP"].copy()
-
-        colunas_posicao_xp = []
-        if not xp_pos_pivot.empty:
-            df_xp_view = df_xp_view.merge(xp_pos_pivot, on="Conta_Limpa", how="left")
-            colunas_posicao_xp = [c for c in xp_pos_pivot.columns if c != "Conta_Limpa"]
-            for col in colunas_posicao_xp:
-                df_xp_view[col] = df_xp_view[col].fillna(0)
+        df_base_corretora_xp = contratos_df[contratos_df["Corretora"] == "XP"].copy()
 
         st.sidebar.header("Filtros XP")
 
-        contas_xp_sel = []
-        carteiras_xp_sel = []
-        status_xp_sel = []
-        produtos_xp_sel = []
+        # 1. Filtro Status
+        status_xp_disp = sorted([str(s) for s in df_base_corretora_xp["Status"].dropna().unique()]) if "Status" in df_base_corretora_xp.columns else []
+        status_xp_sel = st.sidebar.multiselect("Filtrar por Status", status_xp_disp, key="status_xp_sel")
+        
+        df_f1_xp = df_base_corretora_xp.copy()
+        if status_xp_sel:
+            df_f1_xp = df_f1_xp[df_f1_xp["Status"].astype(str).isin(status_xp_sel)]
 
-        if "Conta" in df_xp_view.columns:
-            contas_xp_disp = sorted([str(c) for c in df_xp_view["Conta"].dropna().unique()])
-            contas_xp_sel = st.sidebar.multiselect("Filtrar por Conta", contas_xp_disp, key="conta_xp_sel")
-            if contas_xp_sel:
-                df_xp_view = df_xp_view[df_xp_view["Conta"].astype(str).isin(contas_xp_sel)]
+        # 2. Filtro Carteira (refletido pelo Status)
+        carteiras_xp_disp = sorted([str(c) for c in df_f1_xp["Carteira"].dropna().unique()]) if "Carteira" in df_f1_xp.columns else []
+        carteiras_xp_sel = st.sidebar.multiselect("Filtrar por Carteira", carteiras_xp_disp, key="cart_xp_sel")
+        
+        df_f2_xp = df_f1_xp.copy()
+        if carteiras_xp_sel:
+            df_f2_xp = df_f2_xp[df_f2_xp["Carteira"].astype(str).isin(carteiras_xp_sel)]
 
-        if "Carteira" in df_xp_view.columns:
-            carteiras_xp_disp = sorted([str(c) for c in df_xp_view["Carteira"].dropna().unique()])
-            carteiras_xp_sel = st.sidebar.multiselect("Filtrar por Carteira", carteiras_xp_disp, key="cart_xp_sel")
-            if carteiras_xp_sel:
-                df_xp_view = df_xp_view[df_xp_view["Carteira"].astype(str).isin(carteiras_xp_sel)]
+        # 3. Filtro Conta (refletido por Status e Carteira)
+        contas_xp_disp = sorted([str(c) for c in df_f2_xp["Conta"].dropna().unique()]) if "Conta" in df_f2_xp.columns else []
+        contas_xp_sel = st.sidebar.multiselect("Filtrar por Conta", contas_xp_disp, key="conta_xp_sel")
+        
+        df_xp_view = df_f2_xp.copy()
+        if contas_xp_sel:
+            df_xp_view = df_xp_view[df_xp_view["Conta"].astype(str).isin(contas_xp_sel)]
 
-        if "Status" in df_xp_view.columns:
-            status_xp_disp = sorted([str(s) for s in df_xp_view["Status"].dropna().unique()])
-            status_xp_sel = st.sidebar.multiselect("Filtrar por Status", status_xp_disp, key="status_xp_sel")
-            if status_xp_sel:
-                df_xp_view = df_xp_view[df_xp_view["Status"].astype(str).isin(status_xp_sel)]
-
+        # 4. Filtro Vencimentos (apenas para vencimentos)
         st.sidebar.markdown("---")
         st.sidebar.header("Filtro Vencimentos")
         
@@ -574,8 +610,25 @@ if not contratos_df.empty:
 
         st.metric("Total de Contratos (XP)", len(df_xp_view))
 
+        colunas_posicao_xp = []
+        if not xp_pos_pivot.empty:
+            df_xp_view_pos = df_base_corretora_xp.merge(xp_pos_pivot, on="Conta_Limpa", how="left")
+            if status_xp_sel:
+                df_xp_view_pos = df_xp_view_pos[df_xp_view_pos["Status"].astype(str).isin(status_xp_sel)]
+            if carteiras_xp_sel:
+                df_xp_view_pos = df_xp_view_pos[df_xp_view_pos["Carteira"].astype(str).isin(carteiras_xp_sel)]
+            if contas_xp_sel:
+                df_xp_view_pos = df_xp_view_pos[df_xp_view_pos["Conta"].astype(str).isin(contas_xp_sel)]
+
+            colunas_posicao_xp = [c for c in xp_pos_pivot.columns if c != "Conta_Limpa"]
+            for col in colunas_posicao_xp:
+                df_xp_view_pos[col] = df_xp_view_pos[col].fillna(0)
+        else:
+            df_xp_view_pos = df_xp_view
+
         df_exibir_xp = df_xp_view.copy()
         if not xp_pos_pivot.empty:
+            df_exibir_xp = df_exibir_xp.merge(xp_pos_pivot, on="Conta_Limpa", how="left")
             for col in colunas_posicao_xp:
                 if col in df_exibir_xp.columns:
                     df_exibir_xp[col] = df_exibir_xp[col].apply(formatar_real)
@@ -587,7 +640,7 @@ if not contratos_df.empty:
 
         if colunas_posicao_xp:
             st.markdown("### 📊 Consolidado por Abas/Produtos (XP)")
-            soma_pos_xp = df_xp_view[colunas_posicao_xp].sum() / 1e6
+            soma_pos_xp = df_xp_view_pos[colunas_posicao_xp].sum() / 1e6
 
             if not soma_pos_xp.empty and soma_pos_xp.sum() > 0:
                 fig_xp, ax_xp = plt.subplots(figsize=(12, 5))
@@ -661,9 +714,41 @@ if not contratos_df.empty:
                     plt.tight_layout()
                     st.pyplot(fig_pie_xp)
 
+                # =========================================================
+                # QUARTO GRÁFICO: DISPERSÃO (PLOTLY) COM OS 3 PRIMEIROS FILTROS (XP)
+                # =========================================================
+                st.markdown("### 📉 Gráfico de Dispersão - Descolamento da Média (XP)")
+                df_disp_xp = df_xp_view_pos.copy()
+                df_disp_xp["Valor_Total"] = df_disp_xp[colunas_posicao_xp].sum(axis=1)
+                
+                if not df_disp_xp.empty:
+                    media_val_xp = df_disp_xp["Valor_Total"].mean()
+                    fig_scatter_xp = px.scatter(
+                        df_disp_xp,
+                        x="Carteira",
+                        y="Valor_Total",
+                        color="Status",
+                        hover_data=["Conta"],
+                        title="Dispersão de Contas/Carteiras em relação à Média",
+                        labels={"Valor_Total": "Valor Total Bruto (R$)", "Carteira": "Carteira"}
+                    )
+                    fig_scatter_xp.add_hline(y=media_val_xp, line_dash="dash", line_color="orange", annotation_text=f"Média: R$ {media_val_xp:,.2f}", annotation_position="top right")
+                    fig_scatter_xp.update_layout(
+                        plot_bgcolor="#0e1117",
+                        paper_bgcolor="#0e1117",
+                        font=dict(color="white"),
+                        title_font=dict(color="white")
+                    )
+                    st.plotly_chart(fig_scatter_xp, use_container_width=True)
+
                 st.markdown("### 📅 Vencimentos Mensais - XP (Até Dezembro de 2030)")
                 if not posicao_global_xp.empty:
-                    df_venc_xp = posicao_global_xp[posicao_global_xp["Aba_Origem"].isin(["Renda Fixa", "Coe", "Tesouro Direto"])].copy()
+                    df_venc_xp = posicao_global_xp.copy()
+                    
+                    contas_validas_venc_xp = df_xp_view_pos["Conta_Limpa"].dropna().unique()
+                    df_venc_xp = df_venc_xp[df_venc_xp["Conta_Limpa"].isin(contas_validas_venc_xp)]
+
+                    df_venc_xp = df_venc_xp[df_venc_xp["Aba_Origem"].isin(["Renda Fixa", "Coe", "Tesouro Direto"])].copy()
                     
                     if produtos_xp_sel:
                         col_filtragem = "Categoria" if "Categoria" in df_venc_xp.columns else next((c for c in ["Produto", "Ativo", "SubMercado"] if c in df_venc_xp.columns), None)
