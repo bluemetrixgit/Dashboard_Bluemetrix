@@ -54,7 +54,10 @@ def limpar_coluna_numerica(serie):
 
 def preparar_df_para_excel(df_view_original, colunas_posicao, pos_pivot_ref):
     """Prepara e estiliza o DataFrame para o Excel com formatação financeira, %, centralização e cabeçalho sublinhado."""
+    # Garante que Conta_Limpa está presente e limpa para o merge perfeito
     df_excel = df_view_original.copy()
+    if "Conta" in df_excel.columns and "Conta_Limpa" not in df_excel.columns:
+        df_excel["Conta_Limpa"] = limpar_conta(df_excel["Conta"])
     
     if not pos_pivot_ref.empty and "Conta_Limpa" in df_excel.columns:
         df_merged_raw = df_excel.merge(pos_pivot_ref, on="Conta_Limpa", how="left")
@@ -170,9 +173,6 @@ def carregar_dados():
 
         contratos_geral = pd.concat([df_btg[cols_btg], df_xp[cols_xp]], ignore_index=True)
 
-        # -------------------------
-        # EXCLUSÃO: Status Encerrado ou Vazio (None/NaN)
-        # -------------------------
         if "Status" in contratos_geral.columns:
             contratos_geral = contratos_geral.dropna(subset=["Status"])
             contratos_geral = contratos_geral[
@@ -417,7 +417,6 @@ if not contratos_df.empty:
 
         st.sidebar.header("Filtros BTG")
 
-        # 1. Filtro Status
         status_disponiveis = sorted([str(s) for s in df_base_corretora["Status"].dropna().unique()]) if "Status" in df_base_corretora.columns else []
         status_selecionados = st.sidebar.multiselect("Filtrar por Status", status_disponiveis, key="status_btg_sel")
         
@@ -425,7 +424,6 @@ if not contratos_df.empty:
         if status_selecionados:
             df_f1 = df_f1[df_f1["Status"].astype(str).isin(status_selecionados)]
 
-        # 2. Filtro Carteira (refletido pelo Status)
         carteiras_disponiveis = sorted([str(c) for c in df_f1["Carteira"].dropna().unique()]) if "Carteira" in df_f1.columns else []
         carteiras_selecionadas = st.sidebar.multiselect("Filtrar por Carteira", carteiras_disponiveis, key="cart_btg_sel")
         
@@ -433,7 +431,6 @@ if not contratos_df.empty:
         if carteiras_selecionadas:
             df_f2 = df_f2[df_f2["Carteira"].astype(str).isin(carteiras_selecionadas)]
 
-        # 3. Filtro Conta (refletido por Status e Carteira)
         contas_disponiveis = sorted([str(c) for c in df_f2["Conta"].dropna().unique()]) if "Conta" in df_f2.columns else []
         contas_selecionadas = st.sidebar.multiselect("Filtrar por Conta", contas_disponiveis, key="conta_btg_sel")
         
@@ -441,7 +438,6 @@ if not contratos_df.empty:
         if contas_selecionadas:
             df_btg_view = df_btg_view[df_btg_view["Conta"].astype(str).isin(contas_selecionadas)]
 
-        # 4. Filtro Vencimentos (apenas para vencimentos)
         st.sidebar.markdown("---")
         st.sidebar.header("Filtro Vencimentos")
         produtos_disponiveis = []
@@ -474,13 +470,11 @@ if not contratos_df.empty:
                 if col in df_exibir_btg.columns:
                     df_exibir_btg[col] = df_exibir_btg[col].apply(formatar_real)
 
-        # Remove Conta_Limpa da exibição no dashboard
         if "Conta_Limpa" in df_exibir_btg.columns:
             df_exibir_btg = df_exibir_btg.drop(columns=["Conta_Limpa"])
 
         st.dataframe(df_exibir_btg, use_container_width=True)
 
-        # Botão para baixar planilha BTG em Excel sem a coluna Conta_Limpa
         st.download_button(
             label="📥 Baixar Planilha BTG em Excel (com PL Total e %)",
             data=preparar_df_para_excel(df_btg_view, colunas_posicao, btg_pos_pivot),
@@ -569,9 +563,6 @@ if not contratos_df.empty:
                     plt.tight_layout()
                     st.pyplot(fig_pie)
 
-                # =========================================================
-                # QUARTO GRÁFICO: DISPERSÃO DINÂMICA SOBRE TODAS AS CARTEIRAS
-                # =========================================================
                 st.markdown("### 📉 Gráfico de Dispersão - Descolamento das Aplicações (BTG)")
                 
                 df_disp_btg = btg_pos_pivot.merge(df_base_corretora[["Conta_Limpa", "Carteira", "Status", "Cliente"]], on="Conta_Limpa", how="inner")
@@ -676,7 +667,6 @@ if not contratos_df.empty:
 
         st.sidebar.header("Filtros XP")
 
-        # 1. Filtro Status
         status_xp_disp = sorted([str(s) for s in df_base_corretora_xp["Status"].dropna().unique()]) if "Status" in df_base_corretora_xp.columns else []
         status_xp_sel = st.sidebar.multiselect("Filtrar por Status", status_xp_disp, key="status_xp_sel")
         
@@ -684,7 +674,6 @@ if not contratos_df.empty:
         if status_xp_sel:
             df_f1_xp = df_f1_xp[df_f1_xp["Status"].astype(str).isin(status_xp_sel)]
 
-        # 2. Filtro Carteira (refletido pelo Status)
         carteiras_xp_disp = sorted([str(c) for c in df_f1_xp["Carteira"].dropna().unique()]) if "Carteira" in df_f1_xp.columns else []
         carteiras_xp_sel = st.sidebar.multiselect("Filtrar por Carteira", carteiras_xp_disp, key="cart_xp_sel")
         
@@ -692,7 +681,6 @@ if not contratos_df.empty:
         if carteiras_xp_sel:
             df_f2_xp = df_f2_xp[df_f2_xp["Carteira"].astype(str).isin(carteiras_xp_sel)]
 
-        # 3. Filtro Conta (refletido por Status e Carteira)
         contas_xp_disp = sorted([str(c) for c in df_f2_xp["Conta"].dropna().unique()]) if "Conta" in df_f2_xp.columns else []
         contas_xp_sel = st.sidebar.multiselect("Filtrar por Conta", contas_xp_disp, key="conta_xp_sel")
         
@@ -700,7 +688,6 @@ if not contratos_df.empty:
         if contas_xp_sel:
             df_xp_view = df_xp_view[df_xp_view["Conta"].astype(str).isin(contas_xp_sel)]
 
-        # 4. Filtro Vencimentos (apenas para vencimentos)
         st.sidebar.markdown("---")
         st.sidebar.header("Filtro Vencimentos")
         
@@ -745,13 +732,11 @@ if not contratos_df.empty:
                 if col in df_exibir_xp.columns:
                     df_exibir_xp[col] = df_exibir_xp[col].apply(formatar_real)
 
-        # Remove Conta_Limpa da exibição no dashboard
         if "Conta_Limpa" in df_exibir_xp.columns:
             df_exibir_xp = df_exibir_xp.drop(columns=["Conta_Limpa"])
 
         st.dataframe(df_exibir_xp, use_container_width=True)
 
-        # Botão para baixar planilha XP em Excel sem a coluna Conta_Limpa
         st.download_button(
             label="📥 Baixar Planilha XP em Excel (com PL Total e %)",
             data=preparar_df_para_excel(df_xp_view, colunas_posicao_xp, xp_pos_pivot),
@@ -836,9 +821,6 @@ if not contratos_df.empty:
                     plt.tight_layout()
                     st.pyplot(fig_pie_xp)
 
-                # =========================================================
-                # QUARTO GRÁFICO: DISPERSÃO DINÂMICA SOBRE TODAS AS CARTEIRAS (XP)
-                # =========================================================
                 st.markdown("### 📉 Gráfico de Dispersão - Descolamento das Aplicações (XP)")
                 
                 df_disp_xp = xp_pos_pivot.merge(df_base_corretora_xp[["Conta_Limpa", "Carteira", "Status", "Cliente"]], on="Conta_Limpa", how="inner")
