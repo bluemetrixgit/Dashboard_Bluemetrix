@@ -53,36 +53,30 @@ def limpar_coluna_numerica(serie):
     return pd.to_numeric(serie, errors="coerce").fillna(0)
 
 def gerar_excel_corretora(df_view_base, colunas_posicao, pos_pivot):
-    """Gera o Excel formatado especificamente para a corretora utilizando os dados numéricos crus."""
+    """Gera o Excel formatado para as abas BTG e XP com PL Total e Percentuais."""
     df_excel = df_view_base.copy()
     
-    # Garante Conta_Limpa na base
     if "Conta" in df_excel.columns and "Conta_Limpa" not in df_excel.columns:
         df_excel["Conta_Limpa"] = limpar_conta(df_excel["Conta"])
 
-    # Faz o merge com a pivot numérica original da corretora
     if not pos_pivot.empty and "Conta_Limpa" in df_excel.columns:
         df_excel = df_excel.merge(pos_pivot, on="Conta_Limpa", how="left")
 
-    # Assegura que todas as colunas de posição são numéricas
     for col in colunas_posicao:
         if col in df_excel.columns:
             df_excel[col] = pd.to_numeric(df_excel[col], errors="coerce").fillna(0.0)
         else:
             df_excel[col] = 0.0
 
-    # Calcula o PL Total com base numérica real
     cols_existentes_pos = [c for c in colunas_posicao if c in df_excel.columns]
     df_excel["PL Total"] = df_excel[cols_existentes_pos].sum(axis=1)
 
-    # Calcula as colunas percentuais (%)
     for col in cols_existentes_pos:
         col_nome_perc = f"{col} %"
         df_excel[col_nome_perc] = df_excel.apply(
             lambda r: (r[col] / r["PL Total"]) if r["PL Total"] > 0 else 0.0, axis=1
         )
 
-    # Posiciona PL Total logo após Observações
     cols = list(df_excel.columns)
     if "Observações" in cols:
         idx_obs = cols.index("Observações")
@@ -91,7 +85,6 @@ def gerar_excel_corretora(df_view_base, colunas_posicao, pos_pivot):
             cols.insert(idx_obs + 1, "PL Total")
         df_excel = df_excel[cols]
 
-    # Remove colunas auxiliares
     df_export = df_excel.drop(columns=["Conta_Limpa"], errors="ignore")
 
     output = io.BytesIO()
@@ -102,14 +95,12 @@ def gerar_excel_corretora(df_view_base, colunas_posicao, pos_pivot):
     wb = openpyxl.load_workbook(output)
     ws = wb.active
 
-    # Localiza a coluna "Observações"
     obs_col_idx = None
     for col_idx in range(1, ws.max_column + 1):
         if ws.cell(row=1, column=col_idx).value == "Observações":
             obs_col_idx = col_idx
             break
 
-    # Estilização do Cabeçalho (Linha 1): Negrito e Sublinhado
     font_header = Font(name="Calibri", size=11, bold=True)
     border_bottom = Border(bottom=Side(style="medium", color="000000"))
     
@@ -122,7 +113,6 @@ def gerar_excel_corretora(df_view_base, colunas_posicao, pos_pivot):
         else:
             cell.alignment = Alignment(horizontal="left", vertical="center")
 
-    # Formatação das linhas de dados
     for row_idx in range(2, ws.max_row + 1):
         for col_idx in range(1, ws.max_column + 1):
             cell = ws.cell(row=row_idx, column=col_idx)
@@ -131,10 +121,8 @@ def gerar_excel_corretora(df_view_base, colunas_posicao, pos_pivot):
             if obs_col_idx and col_idx > obs_col_idx:
                 cell.alignment = Alignment(horizontal="center", vertical="center")
 
-            # Formato financeiro para PL Total e valores absolutos
             if header_val == "PL Total" or header_val in colunas_posicao:
                 cell.number_format = 'R$ #,##0.00'
-            # Formato percentual para as colunas de peso (%)
             elif header_val.endswith("%"):
                 cell.number_format = '0.00%'
 
@@ -142,8 +130,33 @@ def gerar_excel_corretora(df_view_base, colunas_posicao, pos_pivot):
     wb.save(final_output)
     return final_output.getvalue()
 
+def gerar_excel_base(df_base):
+    """Gera o Excel formatado especificamente para a aba Base."""
+    df_export = df_base.drop(columns=["Conta_Limpa"], errors="ignore")
+
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+        df_export.to_excel(writer, index=False, sheet_name="Base_Posicao")
+    
+    output.seek(0)
+    wb = openpyxl.load_workbook(output)
+    ws = wb.active
+
+    font_header = Font(name="Calibri", size=11, bold=True)
+    border_bottom = Border(bottom=Side(style="medium", color="000000"))
+    
+    for col_idx in range(1, ws.max_column + 1):
+        cell = ws.cell(row=1, column=col_idx)
+        cell.font = font_header
+        cell.border = border_bottom
+        cell.alignment = Alignment(horizontal="left", vertical="center")
+
+    final_output = io.BytesIO()
+    wb.save(final_output)
+    return final_output.getvalue()
+
 # =========================
-# CARREGAR E PROCESSAR DADOS (COM CACHE INTELIGENTE)
+# CARREGAR E PROCESSAR DADOS
 # =========================
 @st.cache_data
 def carregar_dados():
@@ -163,7 +176,7 @@ def carregar_dados():
 
     if not os.path.exists(path_contratos):
         st.error(f"Arquivo não encontrado: {path_contratos}")
-        return pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+        return pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
     try:
         df_btg = pd.read_excel(path_contratos, sheet_name="BTG", header=1, engine="openpyxl")
@@ -193,7 +206,7 @@ def carregar_dados():
             contratos_geral["Conta_Limpa"] = limpar_conta(contratos_geral["Conta"])
     except Exception as e:
         st.error(f"Erro ao ler Controle de Contratos: {e}")
-        return pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+        return pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
     # -------------------------
     # POSIÇÃO BTG
@@ -201,6 +214,7 @@ def carregar_dados():
     path_pos_btg = "data/Posição.xlsx" if os.path.exists("data/Posição.xlsx") else "Posição.xlsx"
     btg_pos_pivot = pd.DataFrame()
     posicao_global_btg = pd.DataFrame()
+    base_pos_btg = pd.DataFrame()
 
     if os.path.exists(path_pos_btg):
         try:
@@ -210,6 +224,11 @@ def carregar_dados():
             col_conta_btg = "CodigoCliente" if "CodigoCliente" in posicao.columns else "Conta"
             if col_conta_btg in posicao.columns:
                 posicao["Conta_Limpa"] = limpar_conta(posicao[col_conta_btg])
+
+                # Criação da Base com colunas do contrato anexadas
+                df_contratos_btg_ref = df_btg[cols_btg].copy()
+                df_contratos_btg_ref["Conta_Limpa"] = limpar_conta(df_contratos_btg_ref["Conta"])
+                base_pos_btg = posicao.merge(df_contratos_btg_ref.drop(columns=["Conta"], errors="ignore"), on="Conta_Limpa", how="left")
 
                 def definir_coluna_btg(row):
                     submercado = str(row.get("Sub Mercado", "")).strip().upper()
@@ -294,6 +313,7 @@ def carregar_dados():
 
     xp_pos_pivot = pd.DataFrame()
     posicao_global_xp = pd.DataFrame()
+    base_pos_xp = pd.DataFrame()
 
     abas_mapeamento_xp = {
         "Ações": "ValorAtual",
@@ -316,6 +336,10 @@ def carregar_dados():
             xls = pd.ExcelFile(path_pos_xp, engine="openpyxl")
             dfs_por_aba = []
             dfs_globais = []
+            dfs_base_xp = []
+
+            df_contratos_xp_ref = df_xp[cols_xp].copy()
+            df_contratos_xp_ref["Conta_Limpa"] = limpar_conta(df_contratos_xp_ref["Conta"])
 
             for aba_nome, col_alvo in abas_mapeamento_xp.items():
                 if aba_nome in xls.sheet_names:
@@ -330,7 +354,11 @@ def carregar_dados():
 
                     if col_conta_xp:
                         df_aba["Conta_Limpa"] = limpar_conta(df_aba[col_conta_xp])
-                        df_aba["Aba_Origem"] = aba_nome
+                        df_aba["Aba_Posicao"] = aba_nome
+
+                        # Merge com colunas de contrato para a base
+                        df_aba_base = df_aba.merge(df_contratos_xp_ref.drop(columns=["Conta"], errors="ignore"), on="Conta_Limpa", how="left")
+                        dfs_base_xp.append(df_aba_base)
 
                         if col_alvo in df_aba.columns:
                             df_aba["Valor_Calculado"] = limpar_coluna_numerica(df_aba[col_alvo])
@@ -398,20 +426,23 @@ def carregar_dados():
             if dfs_globais:
                 posicao_global_xp = pd.concat(dfs_globais, ignore_index=True)
 
+            if dfs_base_xp:
+                base_pos_xp = pd.concat(dfs_base_xp, ignore_index=True)
+
         except Exception as e:
             st.warning(f"Aviso ao ler relatório de posições da XP: {e}")
 
-    return contratos_geral, btg_pos_pivot, posicao_global_btg, xp_pos_pivot, posicao_global_xp
+    return contratos_geral, btg_pos_pivot, posicao_global_btg, xp_pos_pivot, posicao_global_xp, base_pos_btg, base_pos_xp
 
 # =========================
 # MONTAGEM DA INTERFACE
 # =========================
 
-contratos_df, btg_pos_pivot, posicao_global_btg, xp_pos_pivot, posicao_global_xp = carregar_dados()
+contratos_df, btg_pos_pivot, posicao_global_btg, xp_pos_pivot, posicao_global_xp, base_pos_btg, base_pos_xp = carregar_dados()
 
 if not contratos_df.empty:
     st.sidebar.title("Navegação")
-    corretora_selecionada = st.sidebar.radio("Selecione a Corretora", ["BTG", "XP"])
+    corretora_selecionada = st.sidebar.radio("Selecione a Corretora", ["BTG", "XP", "Base"])
     st.sidebar.markdown("---")
 
     if corretora_selecionada == "BTG":
@@ -482,7 +513,6 @@ if not contratos_df.empty:
 
         st.dataframe(df_exibir_btg, use_container_width=True)
 
-        # Botão de download BTG segregado
         st.download_button(
             label="📥 Baixar Planilha BTG em Excel (com PL Total e %)",
             data=gerar_excel_corretora(df_btg_view, colunas_posicao, btg_pos_pivot),
@@ -665,7 +695,7 @@ if not contratos_df.empty:
                             plt.tight_layout()
                             st.pyplot(fig_venc)
 
-    else:
+    elif corretora_selecionada == "XP":
         # =========================================================================
         # SEÇÃO XP
         # =========================================================================
@@ -745,7 +775,6 @@ if not contratos_df.empty:
 
         st.dataframe(df_exibir_xp, use_container_width=True)
 
-        # Botão de download XP segregado
         st.download_button(
             label="📥 Baixar Planilha XP em Excel (com PL Total e %)",
             data=gerar_excel_corretora(df_xp_view, colunas_posicao_xp, xp_pos_pivot),
@@ -929,6 +958,48 @@ if not contratos_df.empty:
                             ax_venc_xp.grid(True, linestyle="--", alpha=0.2, color="white")
                             plt.tight_layout()
                             st.pyplot(fig_venc_xp)
+
+    elif corretora_selecionada == "Base":
+        # =========================================================================
+        # SEÇÃO BASE (POSIÇÕES BRUTAS BTG & XP COM COLUNAS DE CONTRATO ANEXADAS)
+        # =========================================================================
+        st.subheader("📋 Base Consolidada - Posições Brutas com Dados de Contrato")
+
+        st.markdown(
+            "Selecione abaixo a corretora para visualizar e baixar os arquivos brutos de posição "
+            "com as colunas do Controle de Contratos integradas por conta."
+        )
+
+        sub_aba_base = st.radio("Escolha a Corretora da Base", ["BTG", "XP"], horizontal=True)
+
+        if sub_aba_base == "BTG":
+            if not base_pos_btg.empty:
+                df_base_btg_exibir = base_pos_btg.drop(columns=["Conta_Limpa"], errors="ignore")
+                st.metric("Total de Registros (Posição BTG + Contratos)", len(df_base_btg_exibir))
+                st.dataframe(df_base_btg_exibir, use_container_width=True)
+
+                st.download_button(
+                    label="📥 Baixar Posição Bruta BTG com Contratos em Excel",
+                    data=gerar_excel_base(base_pos_btg),
+                    file_name="base_posicao_btg_com_contratos.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
+            else:
+                st.warning("Nenhum dado de posição BTG encontrado para mesclar.")
+        else:
+            if not base_pos_xp.empty:
+                df_base_xp_exibir = base_pos_xp.drop(columns=["Conta_Limpa"], errors="ignore")
+                st.metric("Total de Registros (Posição XP + Contratos)", len(df_base_xp_exibir))
+                st.dataframe(df_base_xp_exibir, use_container_width=True)
+
+                st.download_button(
+                    label="📥 Baixar Posição Bruta XP com Contratos em Excel",
+                    data=gerar_excel_base(base_pos_xp),
+                    file_name="base_posicao_xp_com_contratos.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
+            else:
+                st.warning("Nenhum dado de posição XP encontrado para mesclar.")
 
 else:
     st.warning("Nenhum dado encontrado. Verifique se os arquivos Excel estão na pasta.")
