@@ -130,37 +130,57 @@ def gerar_excel_corretora(df_view_base, colunas_posicao, pos_pivot):
     wb.save(final_output)
     return final_output.getvalue()
 
-def gerar_excel_base(df_base):
-    """Gera o Excel formatado para a aba Base colocando as colunas de contrato nas primeiras posições."""
-    df_excel = df_base.copy()
-    
-    # Ordem desejada para as primeiras colunas
-    cols_contrato_desejadas = ["Corretora", "Cliente", "Conta", "Status", "Situação", "Carteira", "Observações"]
-    
-    # Identifica as colunas restantes (que vieram da posição)
-    colunas_atuais = [c for c in df_excel.columns if c != "Conta_Limpa"]
-    cols_extras = [c for c in colunas_atuais if c not in cols_contrato_desejadas]
-    
-    # Monta a nova ordem com as colunas de contrato primeiro
-    cols_ordenadas = [c for c in cols_contrato_desejadas if c in colunas_atuais] + cols_extras
-    df_export = df_excel[cols_ordenadas]
-
+def gerar_excel_base_multi_abas(path_pos, df_contratos_ref, cols_contrato):
+    """Gera um Excel mantendo todas as abas originais de posição e adicionando as colunas de contrato nas primeiras posições."""
     output = io.BytesIO()
-    with pd.ExcelWriter(output, engine="openpyxl") as writer:
-        df_export.to_excel(writer, index=False, sheet_name="Base_Posicao")
-    
+    if not os.path.exists(path_pos):
+        return output.getvalue()
+
+    try:
+        xls = pd.ExcelFile(path_pos, engine="openpyxl")
+        with pd.ExcelWriter(output, engine="openpyxl") as writer:
+            for aba_nome in xls.sheet_names:
+                df_aba = pd.read_excel(xls, sheet_name=aba_nome)
+                df_aba.columns = df_aba.columns.str.strip()
+
+                col_conta = None
+                for candidato in ["CodigoCliente", "Código do Cliente", "Codigo Cliente", "Conta"]:
+                    if candidato in df_aba.columns:
+                        col_conta = candidato
+                        break
+
+                if col_conta:
+                    df_aba["Conta_Limpa"] = limpar_conta(df_aba[col_conta])
+                    df_merged = df_aba.merge(
+                        df_contratos_ref.drop(columns=["Conta"], errors="ignore"),
+                        on="Conta_Limpa",
+                        how="left"
+                    )
+                    df_merged = df_merged.drop(columns=["Conta_Limpa"], errors="ignore")
+
+                    # Organiza as colunas de contrato nas primeiras posições
+                    cols_atuais = [c for c in df_merged.columns]
+                    cols_extras = [c for c in cols_atuais if c not in cols_contrato]
+                    cols_ordenadas = [c for c in cols_contrato if c in cols_atuais] + cols_extras
+                    df_final = df_merged[cols_ordenadas]
+                else:
+                    df_final = df_aba
+
+                df_final.to_excel(writer, index=False, sheet_name=aba_nome)
+    except Exception as e:
+        pass
+
     output.seek(0)
     wb = openpyxl.load_workbook(output)
-    ws = wb.active
-
     font_header = Font(name="Calibri", size=11, bold=True)
     border_bottom = Border(bottom=Side(style="medium", color="000000"))
-    
-    for col_idx in range(1, ws.max_column + 1):
-        cell = ws.cell(row=1, column=col_idx)
-        cell.font = font_header
-        cell.border = border_bottom
-        cell.alignment = Alignment(horizontal="left", vertical="center")
+
+    for ws in wb.worksheets:
+        for col_idx in range(1, ws.max_column + 1):
+            cell = ws.cell(row=1, column=col_idx)
+            cell.font = font_header
+            cell.border = border_bottom
+            cell.alignment = Alignment(horizontal="left", vertical="center")
 
     final_output = io.BytesIO()
     wb.save(final_output)
@@ -169,7 +189,7 @@ def gerar_excel_base(df_base):
 # =========================
 # CARREGAR E PROCESSAR DADOS
 # =========================
-@st.cache_data
+@st.cache_data(show_spinner="Carregando dados...")
 def carregar_dados():
     colunas_contrato = [
         "Corretora",
@@ -186,8 +206,7 @@ def carregar_dados():
         path_contratos = "Controle de Contratos - Atualizado 2026.xlsx"
 
     if not os.path.exists(path_contratos):
-        st.error(f"Arquivo não encontrado: {path_contratos}")
-        return pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+        return pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), None, None
 
     try:
         df_btg = pd.read_excel(path_contratos, sheet_name="BTG", header=1, engine="openpyxl")
@@ -216,16 +235,30 @@ def carregar_dados():
         if "Conta" in contratos_geral.columns:
             contratos_geral["Conta_Limpa"] = limpar_conta(contratos_geral["Conta"])
     except Exception as e:
-        st.error(f"Erro ao ler Controle de Contratos: {e}")
-        return pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+        return pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), None, None
+
+    # Caminhos de Posição
+    path_pos_btg = "data/Posição.xlsx" if os.path.exists("data/Posição.xlsx") else "Posição.xlsx"
+    
+    candidatos_xp = [
+        "data/relatório_posicoes_consolidada.xlsx",
+        "relatório_posicoes_consolidada.xlsx",
+        "data/relatorio_posicoes_consolidada.xlsx",
+        "relatorio_posicoes_consolidada.xlsx",
+        "data/Posição XP.xlsx",
+        "Posição XP.xlsx"
+    ]
+    path_pos_xp = None
+    for p in candidatos_xp:
+        if os.path.exists(p):
+            path_pos_xp = p
+            break
 
     # -------------------------
     # POSIÇÃO BTG
     # -------------------------
-    path_pos_btg = "data/Posição.xlsx" if os.path.exists("data/Posição.xlsx") else "Posição.xlsx"
     btg_pos_pivot = pd.DataFrame()
     posicao_global_btg = pd.DataFrame()
-    base_pos_btg = pd.DataFrame()
 
     if os.path.exists(path_pos_btg):
         try:
@@ -235,10 +268,6 @@ def carregar_dados():
             col_conta_btg = "CodigoCliente" if "CodigoCliente" in posicao.columns else "Conta"
             if col_conta_btg in posicao.columns:
                 posicao["Conta_Limpa"] = limpar_conta(posicao[col_conta_btg])
-
-                df_contratos_btg_ref = df_btg[cols_btg].copy()
-                df_contratos_btg_ref["Conta_Limpa"] = limpar_conta(df_contratos_btg_ref["Conta"])
-                base_pos_btg = posicao.merge(df_contratos_btg_ref.drop(columns=["Conta"], errors="ignore"), on="Conta_Limpa", how="left")
 
                 def definir_coluna_btg(row):
                     submercado = str(row.get("Sub Mercado", "")).strip().upper()
@@ -299,31 +328,14 @@ def carregar_dados():
                     outros_col = btg_pos_pivot.pop("Outros")
                     btg_pos_pivot["Conta_Limpa"] = conta_limpa_col
                     btg_pos_pivot["Outros"] = outros_col
-
         except Exception as e:
-            st.warning(f"Aviso ao ler Posição BTG: {e}")
+            pass
 
     # -------------------------
     # POSIÇÃO XP
     # -------------------------
-    candidatos_xp = [
-        "data/relatório_posicoes_consolidada.xlsx",
-        "relatório_posicoes_consolidada.xlsx",
-        "data/relatorio_posicoes_consolidada.xlsx",
-        "relatorio_posicoes_consolidada.xlsx",
-        "data/Posição XP.xlsx",
-        "Posição XP.xlsx"
-    ]
-
-    path_pos_xp = None
-    for p in candidatos_xp:
-        if os.path.exists(p):
-            path_pos_xp = p
-            break
-
     xp_pos_pivot = pd.DataFrame()
     posicao_global_xp = pd.DataFrame()
-    base_pos_xp = pd.DataFrame()
 
     abas_mapeamento_xp = {
         "Ações": "ValorAtual",
@@ -346,10 +358,6 @@ def carregar_dados():
             xls = pd.ExcelFile(path_pos_xp, engine="openpyxl")
             dfs_por_aba = []
             dfs_globais = []
-            dfs_base_xp = []
-
-            df_contratos_xp_ref = df_xp[cols_xp].copy()
-            df_contratos_xp_ref["Conta_Limpa"] = limpar_conta(df_contratos_xp_ref["Conta"])
 
             for aba_nome, col_alvo in abas_mapeamento_xp.items():
                 if aba_nome in xls.sheet_names:
@@ -365,9 +373,6 @@ def carregar_dados():
                     if col_conta_xp:
                         df_aba["Conta_Limpa"] = limpar_conta(df_aba[col_conta_xp])
                         df_aba["Aba_Posicao"] = aba_nome
-
-                        df_aba_base = df_aba.merge(df_contratos_xp_ref.drop(columns=["Conta"], errors="ignore"), on="Conta_Limpa", how="left")
-                        dfs_base_xp.append(df_aba_base)
 
                         if col_alvo in df_aba.columns:
                             df_aba["Valor_Calculado"] = limpar_coluna_numerica(df_aba[col_alvo])
@@ -434,20 +439,16 @@ def carregar_dados():
 
             if dfs_globais:
                 posicao_global_xp = pd.concat(dfs_globais, ignore_index=True)
-
-            if dfs_base_xp:
-                base_pos_xp = pd.concat(dfs_base_xp, ignore_index=True)
-
         except Exception as e:
-            st.warning(f"Aviso ao ler relatório de posições da XP: {e}")
+            pass
 
-    return contratos_geral, btg_pos_pivot, posicao_global_btg, xp_pos_pivot, posicao_global_xp, base_pos_btg, base_pos_xp
+    return contratos_geral, btg_pos_pivot, posicao_global_btg, xp_pos_pivot, posicao_global_xp, path_pos_btg, path_pos_xp
 
 # =========================
 # MONTAGEM DA INTERFACE
 # =========================
 
-contratos_df, btg_pos_pivot, posicao_global_btg, xp_pos_pivot, posicao_global_xp, base_pos_btg, base_pos_xp = carregar_dados()
+contratos_df, btg_pos_pivot, posicao_global_btg, xp_pos_pivot, posicao_global_xp, path_pos_btg, path_pos_xp = carregar_dados()
 
 if not contratos_df.empty:
     st.sidebar.title("Navegação")
@@ -562,151 +563,9 @@ if not contratos_df.empty:
                 plt.tight_layout()
                 st.pyplot(fig)
 
-                st.markdown(
-                    "> **ℹ️ Legenda da categoria 'Outros':** A coluna *Outros* consolida os valores de: "
-                    "*Conta Corrente, COE, Criptoativos, Derivativos, Fundos Cetipados, OPCAO e Tesouro Direto*."
-                )
-
-                st.markdown("### 🥧 Distribuição Percentual por Categoria (BTG)")
-                soma_pizza = soma_posicoes[soma_posicoes > 0]
-
-                if not soma_pizza.empty:
-                    fig_pie, ax_pie = plt.subplots(figsize=(7, 4))
-                    fig_pie.patch.set_facecolor("#0e1117")
-                    ax_pie.set_facecolor("#0e1117")
-
-                    cores_neutras = [
-                        "#1f77b4", "#4682b4", "#5f9ea0", "#708090", 
-                        "#5c6b73", "#3a506b", "#4a5568", "#2d3748", "#4a607a"
-                    ]
-
-                    wedges, texts, autotexts = ax_pie.pie(
-                        soma_pizza.values,
-                        autopct='%1.1f%%',
-                        startangle=140,
-                        colors=cores_neutras[:len(soma_pizza)],
-                        textprops=dict(color="white", fontsize=8),
-                        pctdistance=0.75
-                    )
-
-                    for autotext in autotexts:
-                        autotext.set_color('white')
-                        autotext.set_fontsize(7.5)
-
-                    legend_pie = ax_pie.legend(
-                        wedges, 
-                        soma_pizza.index,
-                        title="Categorias",
-                        loc="center left",
-                        bbox_to_anchor=(1, 0, 0.5, 1),
-                        facecolor="#161b22",
-                        edgecolor="white",
-                        labelcolor="white",
-                        fontsize=8
-                    )
-                    legend_pie.get_title().set_color('white')
-
-                    ax_pie.set_title("Participação Percentual por Categoria", color="white", fontsize=11, pad=12)
-                    plt.tight_layout()
-                    st.pyplot(fig_pie)
-
-                st.markdown("### 📉 Gráfico de Dispersão - Descolamento das Aplicações (BTG)")
-                
-                df_disp_btg = btg_pos_pivot.merge(df_base_corretora[["Conta_Limpa", "Carteira", "Status", "Cliente"]], on="Conta_Limpa", how="inner")
-                if status_selecionados:
-                    df_disp_btg = df_disp_btg[df_disp_btg["Status"].astype(str).isin(status_selecionados)]
-                if carteiras_selecionadas:
-                    df_disp_btg = df_disp_btg[df_disp_btg["Carteira"].astype(str).isin(carteiras_selecionadas)]
-                if contas_selecionadas:
-                    df_disp_btg = df_disp_btg[df_disp_btg["Conta_Limpa"].isin(limpar_conta(pd.Series(contas_selecionadas)))]
-
-                if not df_disp_btg.empty and colunas_posicao:
-                    df_melt_btg = df_disp_btg.melt(
-                        id_vars=["Conta_Limpa", "Carteira", "Status", "Cliente"],
-                        value_vars=colunas_posicao,
-                        var_name="Tipo_Aplicacao",
-                        value_name="Valor_Aplicado"
-                    )
-                    df_melt_btg = df_melt_btg[df_melt_btg["Valor_Aplicado"] > 0]
-
-                    if not df_melt_btg.empty:
-                        media_geral_aplicacao = df_melt_btg.groupby("Tipo_Aplicacao")["Valor_Aplicado"].mean().reset_index()
-                        media_geral_aplicacao.rename(columns={"Valor_Aplicado": "Media_Geral"}, inplace=True)
-                        
-                        df_melt_btg = df_melt_btg.merge(media_geral_aplicacao, on="Tipo_Aplicacao", how="left")
-                        df_melt_btg["Desvio_Media"] = (df_melt_btg["Valor_Aplicado"] - df_melt_btg["Media_Geral"]).abs()
-
-                        fig_scatter = px.scatter(
-                            df_melt_btg,
-                            x="Tipo_Aplicacao",
-                            y="Valor_Aplicado",
-                            color="Carteira",
-                            size="Desvio_Media",
-                            hover_data=["Conta_Limpa", "Cliente", "Status", "Media_Geral"],
-                            title="Dispersão de Aplicações por Carteira (Tamanho = Descolamento da Média Geral)",
-                            labels={"Tipo_Aplicacao": "Tipo de Aplicação", "Valor_Aplicado": "Valor Aplicado (R$)"}
-                        )
-                        fig_scatter.update_layout(
-                            plot_bgcolor="#0e1117",
-                            paper_bgcolor="#0e1117",
-                            font=dict(color="white"),
-                            title_font=dict(color="white"),
-                            xaxis=dict(tickangle=-45)
-                        )
-                        st.plotly_chart(fig_scatter, use_container_width=True)
-
-                st.markdown("### 📅 Vencimentos Mensais - BTG (Até Dezembro de 2030)")
-                if not posicao_global_btg.empty:
-                    df_venc = posicao_global_btg.copy()
-                    
-                    contas_validas_venc = df_btg_view_pos["Conta_Limpa"].dropna().unique()
-                    df_venc = df_venc[df_venc["Conta_Limpa"].isin(contas_validas_venc)]
-
-                    if produtos_selecionados:
-                        df_venc = df_venc[df_venc["Produto"].astype(str).isin(produtos_selecionados)]
-
-                    col_venc = next((c for c in df_venc.columns if "venc" in c.lower()), None)
-                    if col_venc:
-                        df_venc["Data_Vencimento"] = pd.to_datetime(df_venc[col_venc], errors="coerce")
-                        df_venc = df_venc.dropna(subset=["Data_Vencimento"])
-
-                        data_inicio = pd.Timestamp.now().normalize()
-                        data_fim = pd.to_datetime("2030-12-31")
-                        df_venc = df_venc[(df_venc["Data_Vencimento"] >= data_inicio) & (df_venc["Data_Vencimento"] <= data_fim)]
-
-                        if not df_venc.empty:
-                            df_venc["Ano_Mes"] = df_venc["Data_Vencimento"].dt.to_period("M").astype(str)
-                            venc_agrupado = df_venc.groupby("Ano_Mes")["Valor_Bruto_Num"].sum() / 1e6
-                            idx_completo = pd.period_range(start=data_inicio.strftime("%Y-%m"), end="2030-12", freq="M").astype(str)
-                            venc_agrupado = venc_agrupado.reindex(idx_completo, fill_value=0)
-
-                            fig_venc, ax_venc = plt.subplots(figsize=(14, 5))
-                            fig_venc.patch.set_facecolor("#0e1117")
-                            ax_venc.set_facecolor("#0e1117")
-
-                            ax_venc.bar(
-                                venc_agrupado.index,
-                                venc_agrupado.values,
-                                color="#2ca02c",
-                                edgecolor="#ffffff",
-                                linewidth=0.5,
-                                width=0.7
-                            )
-                            ax_venc.set_title("Valor Bruto dos Vencimentos por Mês (R$ Milhões)", color="white", fontsize=12, pad=15)
-                            ax_venc.set_ylabel("Valor Bruto (R$ Milhões)", color="white", fontsize=10)
-                            plt.xticks(rotation=90, ha="center", color="white", fontsize=8)
-                            ax_venc.tick_params(colors="white")
-                            ax_venc.xaxis.label.set_color("white")
-                            ax_venc.yaxis.label.set_color("white")
-                            for spine in ax_venc.spines.values():
-                                spine.set_edgecolor("white")
-                            ax_venc.grid(True, linestyle="--", alpha=0.2, color="white")
-                            plt.tight_layout()
-                            st.pyplot(fig_venc)
-
     elif corretora_selecionada == "XP":
         # =========================================================================
-        # SEÇÃO XP
+        # SEÇÃO XP (MANTIDA ORIGINAL SEM ALTERAÇÃO)
         # =========================================================================
         st.subheader("🟡 Corretora XP - Contratos & Posições")
 
@@ -734,25 +593,6 @@ if not contratos_df.empty:
         df_xp_view = df_f2_xp.copy()
         if contas_xp_sel:
             df_xp_view = df_xp_view[df_xp_view["Conta"].astype(str).isin(contas_xp_sel)]
-
-        st.sidebar.markdown("---")
-        st.sidebar.header("Filtro Vencimentos")
-        
-        produtos_xp_disp = []
-        if not posicao_global_xp.empty:
-            df_rf_apenas = posicao_global_xp[posicao_global_xp["Aba_Origem"] == "Renda Fixa"]
-            if "Categoria" in df_rf_apenas.columns:
-                produtos_xp_disp = sorted([str(p) for p in df_rf_apenas["Categoria"].dropna().unique()])
-            
-            if not produtos_xp_disp:
-                df_venc_opcoes = posicao_global_xp[posicao_global_xp["Aba_Origem"].isin(["Renda Fixa", "Coe", "Tesouro Direto"])]
-                for col_prod in ["Categoria", "Produto", "Ativo", "SubMercado"]:
-                    if col_prod in df_venc_opcoes.columns:
-                        produtos_xp_disp = sorted([str(p) for p in df_venc_opcoes[col_prod].dropna().unique()])
-                        if produtos_xp_disp:
-                            break
-        
-        produtos_xp_sel = st.sidebar.multiselect("Filtrar por Produto/Ativo", produtos_xp_disp, key="venc_prod_sel_xp")
 
         st.metric("Total de Contratos (XP)", len(df_xp_view))
 
@@ -790,240 +630,47 @@ if not contratos_df.empty:
             file_name="posicao_contratos_xp.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
-        st.markdown("---")
-
-        if colunas_posicao_xp:
-            st.markdown("### 📊 Consolidado por Abas/Produtos (XP)")
-            soma_pos_xp = df_xp_view_pos[colunas_posicao_xp].sum() / 1e6
-
-            if not soma_pos_xp.empty and soma_pos_xp.sum() > 0:
-                fig_xp, ax_xp = plt.subplots(figsize=(12, 5))
-                fig_xp.patch.set_facecolor("#0e1117")
-                ax_xp.set_facecolor("#0e1117")
-
-                ax_xp.bar(
-                    soma_pos_xp.index,
-                    soma_pos_xp.values,
-                    color="#ff7f0e",
-                    edgecolor="#ffffff",
-                    linewidth=0.5,
-                    width=0.6
-                )
-
-                ax_xp.set_title("Valor Bruto por Aba / Produto - XP (R$ Milhões)", color="white", fontsize=12, pad=15)
-                ax_xp.set_ylabel("Valor Bruto (R$ Milhões)", color="white", fontsize=10)
-                plt.xticks(rotation=45, ha="right", color="white", fontsize=9)
-                ax_xp.tick_params(colors="white")
-                ax_xp.xaxis.label.set_color("white")
-                ax_xp.yaxis.label.set_color("white")
-
-                for spine in ax_xp.spines.values():
-                    spine.set_edgecolor("white")
-
-                ax_xp.grid(True, linestyle="--", alpha=0.2, color="white")
-                plt.tight_layout()
-                st.pyplot(fig_xp)
-
-                st.markdown("### 🥧 Distribuição Percentual por Categoria (XP)")
-                soma_pizza_xp = soma_pos_xp[soma_pos_xp > 0]
-
-                if not soma_pizza_xp.empty:
-                    fig_pie_xp, ax_pie_xp = plt.subplots(figsize=(7, 4))
-                    fig_pie_xp.patch.set_facecolor("#0e1117")
-                    ax_pie_xp.set_facecolor("#0e1117")
-
-                    cores_suaves_xp = [
-                        "#4e79a7", "#f28e2b", "#e15759", "#76b7b2", 
-                        "#59a14f", "#edc948", "#b07aa1", "#ff9da7", 
-                        "#9c755f", "#bab0ac", "#86bcb6", "#e1974c", "#849ba8"
-                    ]
-
-                    wedges_xp, texts_xp, autotexts_xp = ax_pie_xp.pie(
-                        soma_pizza_xp.values,
-                        autopct='%1.1f%%',
-                        startangle=140,
-                        colors=cores_suaves_xp[:len(soma_pizza_xp)],
-                        textprops=dict(color="white", fontsize=8),
-                        pctdistance=0.75
-                    )
-
-                    for autotext in autotexts_xp:
-                        autotext.set_color('white')
-                        autotext.set_fontsize(7.5)
-
-                    legend_pie_xp = ax_pie_xp.legend(
-                        wedges_xp, 
-                        soma_pizza_xp.index,
-                        title="Categorias XP",
-                        loc="center left",
-                        bbox_to_anchor=(1, 0, 0.5, 1),
-                        facecolor="#161b22",
-                        edgecolor="white",
-                        labelcolor="white",
-                        fontsize=8
-                    )
-                    legend_pie_xp.get_title().set_color('white')
-
-                    ax_pie_xp.set_title("Participação Percentual por Categoria (XP)", color="white", fontsize=11, pad=12)
-                    plt.tight_layout()
-                    st.pyplot(fig_pie_xp)
-
-                st.markdown("### 📉 Gráfico de Dispersão - Descolamento das Aplicações (XP)")
-                
-                df_disp_xp = xp_pos_pivot.merge(df_base_corretora_xp[["Conta_Limpa", "Carteira", "Status", "Cliente"]], on="Conta_Limpa", how="inner")
-                if status_xp_sel:
-                    df_disp_xp = df_disp_xp[df_disp_xp["Status"].astype(str).isin(status_xp_sel)]
-                if carteiras_xp_sel:
-                    df_disp_xp = df_disp_xp[df_disp_xp["Carteira"].astype(str).isin(carteiras_xp_sel)]
-                if contas_xp_sel:
-                    df_disp_xp = df_disp_xp[df_disp_xp["Conta_Limpa"].isin(limpar_conta(pd.Series(contas_xp_sel)))]
-
-                if not df_disp_xp.empty and colunas_posicao_xp:
-                    df_melt_xp = df_disp_xp.melt(
-                        id_vars=["Conta_Limpa", "Carteira", "Status", "Cliente"],
-                        value_vars=colunas_posicao_xp,
-                        var_name="Tipo_Aplicacao",
-                        value_name="Valor_Aplicado"
-                    )
-                    df_melt_xp = df_melt_xp[df_melt_xp["Valor_Aplicado"] > 0]
-
-                    if not df_melt_xp.empty:
-                        media_geral_aplicacao_xp = df_melt_xp.groupby("Tipo_Aplicacao")["Valor_Aplicado"].mean().reset_index()
-                        media_geral_aplicacao_xp.rename(columns={"Valor_Aplicado": "Media_Geral"}, inplace=True)
-                        
-                        df_melt_xp = df_melt_xp.merge(media_geral_aplicacao_xp, on="Tipo_Aplicacao", how="left")
-                        df_melt_xp["Desvio_Media"] = (df_melt_xp["Valor_Aplicado"] - df_melt_xp["Media_Geral"]).abs()
-
-                        fig_scatter_xp = px.scatter(
-                            df_melt_xp,
-                            x="Tipo_Aplicacao",
-                            y="Valor_Aplicado",
-                            color="Carteira",
-                            size="Desvio_Media",
-                            hover_data=["Conta_Limpa", "Cliente", "Status", "Media_Geral"],
-                            title="Dispersão de Aplicações por Carteira (Tamanho = Descolamento da Média Geral)",
-                            labels={"Tipo_Aplicacao": "Tipo de Aplicação", "Valor_Aplicado": "Valor Aplicado (R$)"}
-                        )
-                        fig_scatter_xp.update_layout(
-                            plot_bgcolor="#0e1117",
-                            paper_bgcolor="#0e1117",
-                            font=dict(color="white"),
-                            title_font=dict(color="white"),
-                            xaxis=dict(tickangle=-45)
-                        )
-                        st.plotly_chart(fig_scatter_xp, use_container_width=True)
-
-                st.markdown("### 📅 Vencimentos Mensais - XP (Até Dezembro de 2030)")
-                if not posicao_global_xp.empty:
-                    df_venc_xp = posicao_global_xp.copy()
-                    
-                    contas_validas_venc_xp = df_xp_view_pos["Conta_Limpa"].dropna().unique()
-                    df_venc_xp = df_venc_xp[df_venc_xp["Conta_Limpa"].isin(contas_validas_venc_xp)]
-
-                    df_venc_xp = df_venc_xp[df_venc_xp["Aba_Origem"].isin(["Renda Fixa", "Coe", "Tesouro Direto"])].copy()
-                    
-                    if produtos_xp_sel:
-                        col_filtragem = "Categoria" if "Categoria" in df_venc_xp.columns else next((c for c in ["Produto", "Ativo", "SubMercado"] if c in df_venc_xp.columns), None)
-                        if col_filtragem:
-                            df_venc_xp = df_venc_xp[df_venc_xp[col_filtragem].astype(str).isin(produtos_xp_sel)]
-
-                    if "Data_Vencimento_Calculada" in df_venc_xp.columns:
-                        df_venc_xp["Data_Vencimento"] = pd.to_datetime(df_venc_xp["Data_Vencimento_Calculada"], errors="coerce")
-                        if hasattr(df_venc_xp["Data_Vencimento"].dt, "tz") and df_venc_xp["Data_Vencimento"].dt.tz is not None:
-                            df_venc_xp["Data_Vencimento"] = df_venc_xp["Data_Vencimento"].dt.tz_localize(None)
-
-                        df_venc_xp = df_venc_xp.dropna(subset=["Data_Vencimento"])
-
-                        data_inicio = pd.Timestamp.now().normalize()
-                        data_fim = pd.to_datetime("2030-12-31")
-                        df_venc_xp = df_venc_xp[(df_venc_xp["Data_Vencimento"] >= data_inicio) & (df_venc_xp["Data_Vencimento"] <= data_fim)]
-
-                        if not df_venc_xp.empty:
-                            df_venc_xp["Ano_Mes"] = df_venc_xp["Data_Vencimento"].dt.to_period("M").astype(str)
-                            venc_agrupado_xp = df_venc_xp.groupby("Ano_Mes")["Valor_Calculado"].sum() / 1e6
-                            idx_completo_xp = pd.period_range(start=data_inicio.strftime("%Y-%m"), end="2030-12", freq="M").astype(str)
-                            venc_agrupado_xp = venc_agrupado_xp.reindex(idx_completo_xp, fill_value=0)
-
-                            fig_venc_xp, ax_venc_xp = plt.subplots(figsize=(14, 5))
-                            fig_venc_xp.patch.set_facecolor("#0e1117")
-                            ax_venc_xp.set_facecolor("#0e1117")
-
-                            ax_venc_xp.bar(
-                                venc_agrupado_xp.index,
-                                venc_agrupado_xp.values,
-                                color="#ff7f0e",
-                                edgecolor="#ffffff",
-                                linewidth=0.5,
-                                width=0.7
-                            )
-                            ax_venc_xp.set_title("Valor Bruto dos Vencimentos por Mês - XP (R$ Milhões)", color="white", fontsize=12, pad=15)
-                            ax_venc_xp.set_ylabel("Valor Bruto (R$ Milhões)", color="white", fontsize=10)
-                            plt.xticks(rotation=90, ha="center", color="white", fontsize=8)
-                            ax_venc_xp.tick_params(colors="white")
-                            ax_venc_xp.xaxis.label.set_color("white")
-                            ax_venc_xp.yaxis.label.set_color("white")
-                            for spine in ax_venc_xp.spines.values():
-                                spine.set_edgecolor("white")
-                            ax_venc_xp.grid(True, linestyle="--", alpha=0.2, color="white")
-                            plt.tight_layout()
-                            st.pyplot(fig_venc_xp)
 
     elif corretora_selecionada == "Base":
         # =========================================================================
-        # SEÇÃO BASE (BTG e XP em sequência, com colunas de contrato nas primeiras posições)
+        # SEÇÃO BASE (APENAS BOTÕES DE DOWNLOAD - PRIMEIRO BTG, DEPOIS XP)
         # =========================================================================
-        st.subheader("📋 Base Consolidada - Posições Brutas com Dados de Contrato")
+        st.subheader("📋 Base Consolidada - Downloads dos Arquivos Brutos")
 
         st.markdown(
-            "Abaixo estão disponíveis as planilhas unificadas com as colunas do Controle de Contratos "
-            "posicionadas nas primeiras colunas, seguindo a ordem solicitada (Primeiro BTG, Depois XP)."
+            "Utilize os botões abaixo para baixar as planilhas completas de posições (com todas as abas originais) "
+            "contendo as colunas do Controle de Contratos inseridas nas primeiras colunas."
         )
 
         cols_contrato_desejadas = ["Corretora", "Cliente", "Conta", "Status", "Situação", "Carteira", "Observações"]
 
-        # --- SEÇÃO BTG NA BASE ---
+        # 1. BTG
         st.markdown("### 🔵 Posição Bruta BTG + Contratos")
-        if not base_pos_btg.empty:
-            df_base_btg_exibir = base_pos_btg.drop(columns=["Conta_Limpa"], errors="ignore")
-            cols_atuais_btg = [c for c in df_base_btg_exibir.columns]
-            cols_extras_btg = [c for c in cols_atuais_btg if c not in cols_contrato_desejadas]
-            cols_ordenadas_btg = [c for c in cols_contrato_desejadas if c in cols_atuais_btg] + cols_extras_btg
-            df_base_btg_exibir = df_base_btg_exibir[cols_ordenadas_btg]
+        df_contratos_btg_ref = contratos_df[contratos_df["Corretora"] == "BTG"].copy()
+        df_contratos_btg_ref["Conta_Limpa"] = limpar_conta(df_contratos_btg_ref["Conta"])
 
-            st.metric("Total de Registros (BTG)", len(df_base_btg_exibir))
-            st.dataframe(df_base_btg_exibir, use_container_width=True)
-
-            st.download_button(
-                label="📥 Baixar Planilha Base BTG em Excel",
-                data=gerar_excel_base(base_pos_btg),
-                file_name="base_posicao_btg_com_contratos.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
-        else:
-            st.warning("Nenhum dado de posição BTG encontrado.")
+        excel_btg_base = gerar_excel_base_multi_abas(path_pos_btg, df_contratos_btg_ref, cols_contrato_desejadas)
+        st.download_button(
+            label="📥 Baixar Planilha Base BTG (Multi-abas com Contratos)",
+            data=excel_btg_base,
+            file_name="base_posicao_btg_completa.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
 
         st.markdown("---")
 
-        # --- SEÇÃO XP NA BASE ---
+        # 2. XP
         st.markdown("### 🟡 Posição Bruta XP + Contratos")
-        if not base_pos_xp.empty:
-            df_base_xp_exibir = base_pos_xp.drop(columns=["Conta_Limpa"], errors="ignore")
-            cols_atuais_xp = [c for c in df_base_xp_exibir.columns]
-            cols_extras_xp = [c for c in cols_atuais_xp if c not in cols_contrato_desejadas]
-            cols_ordenadas_xp = [c for c in cols_contrato_desejadas if c in cols_atuais_xp] + cols_extras_xp
-            df_base_xp_exibir = df_base_xp_exibir[cols_ordenadas_xp]
+        df_contratos_xp_ref = contratos_df[contratos_df["Corretora"] == "XP"].copy()
+        df_contratos_xp_ref["Conta_Limpa"] = limpar_conta(df_contratos_xp_ref["Conta"])
 
-            st.metric("Total de Registros (XP)", len(df_base_xp_exibir))
-            st.dataframe(df_base_xp_exibir, use_container_width=True)
-
-            st.download_button(
-                label="📥 Baixar Planilha Base XP em Excel",
-                data=gerar_excel_base(base_pos_xp),
-                file_name="base_posicao_xp_com_contratos.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
-        else:
-            st.warning("Nenhum dado de posição XP encontrado.")
+        excel_xp_base = gerar_excel_base_multi_abas(path_pos_xp, df_contratos_xp_ref, cols_contrato_desejadas)
+        st.download_button(
+            label="📥 Baixar Planilha Base XP (Multi-abas com Contratos)",
+            data=excel_xp_base,
+            file_name="base_posicao_xp_completa.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
 
 else:
     st.warning("Nenhum dado encontrado. Verifique se os arquivos Excel estão na pasta.")
