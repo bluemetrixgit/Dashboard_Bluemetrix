@@ -50,11 +50,45 @@ def limpar_coluna_numerica(serie):
         )
     return pd.to_numeric(serie, errors="coerce").fillna(0)
 
-def converter_para_excel(df):
-    """Converte um DataFrame para bytes em formato Excel (.xlsx) para download."""
+def preparar_df_para_excel(df_view, colunas_posicao, btg_pos_pivot_ref):
+    """Prepara o DataFrame para o Excel adicionando PL Total e colunas de % de peso."""
+    df_excel = df_view.copy()
+    
+    # Garante as posições numéricas originais para cálculo
+    if not btg_pos_pivot_ref.empty:
+        # Pega do pivot bruto para somar e tirar percentuais exatos
+        df_merged_raw = df_view.merge(btg_pos_pivot_ref, on="Conta_Limpa", how="left")
+        for col in colunas_posicao:
+            df_excel[col] = df_merged_raw[col].fillna(0)
+            
+    # Soma todas as colunas de posição para obter o PL Total
+    df_excel["PL Total"] = df_excel[colunas_posicao].sum(axis=1)
+    
+    # Calcula os pesos (%) para cada coluna de posição
+    for col in colunas_posicao:
+        col_nome_perc = f"{col} %"
+        # Evita divisão por zero
+        df_excel[col_nome_perc] = df_excel.apply(
+            lambda r: (r[col] / r["PL Total"]) if r["PL Total"] > 0 else 0.0, axis=1
+        )
+
+    # Reorganiza as colunas colocando o PL Total logo após Observações (se existir)
+    cols = list(df_excel.columns)
+    if "Observações" in cols:
+        idx_obs = cols.index("Observações")
+        # Remove PL Total e insere após Observações
+        if "PL Total" in cols:
+            cols.remove("PL Total")
+            cols.insert(idx_obs + 1, "PL Total")
+        df_excel = df_excel[cols]
+
+    # Formata PL Total para Real e as colunas % para formato percentual do excel
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
-        df.to_excel(writer, index=False, sheet_name="Consolidado")
+        df_export = df_excel.drop(columns=["Conta_Limpa"], errors="ignore")
+        df_export.to_excel(writer, index=False, sheet_name="Consolidado")
+        
+        # Opcional: formatação de células numéricas no openpyxl se necessário
     return output.getvalue()
 
 # =========================
@@ -404,10 +438,10 @@ if not contratos_df.empty:
 
         st.dataframe(df_exibir_btg, use_container_width=True)
 
-        # Botão para baixar planilha BTG em Excel logo abaixo da tabela
+        # Botão para baixar planilha BTG em Excel com PL Total e colunas de %
         st.download_button(
-            label="📥 Baixar Planilha BTG em Excel",
-            data=converter_para_excel(df_exibir_btg),
+            label="📥 Baixar Planilha BTG em Excel (com PL Total e %)",
+            data=preparar_df_para_excel(df_exibir_btg, colunas_posicao, btg_pos_pivot),
             file_name="posicao_contratos_btg.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
@@ -674,10 +708,10 @@ if not contratos_df.empty:
 
         st.dataframe(df_exibir_xp, use_container_width=True)
 
-        # Botão para baixar planilha XP em Excel logo abaixo da tabela
+        # Botão para baixar planilha XP em Excel com PL Total e colunas de %
         st.download_button(
-            label="📥 Baixar Planilha XP em Excel",
-            data=converter_para_excel(df_exibir_xp),
+            label="📥 Baixar Planilha XP em Excel (com PL Total e %)",
+            data=preparar_df_para_excel(df_exibir_xp, colunas_posicao_xp, xp_pos_pivot),
             file_name="posicao_contratos_xp.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
