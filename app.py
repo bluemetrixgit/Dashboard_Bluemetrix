@@ -131,8 +131,19 @@ def gerar_excel_corretora(df_view_base, colunas_posicao, pos_pivot):
     return final_output.getvalue()
 
 def gerar_excel_base(df_base):
-    """Gera o Excel formatado especificamente para a aba Base."""
-    df_export = df_base.drop(columns=["Conta_Limpa"], errors="ignore")
+    """Gera o Excel formatado para a aba Base colocando as colunas de contrato nas primeiras posições."""
+    df_excel = df_base.copy()
+    
+    # Ordem desejada para as primeiras colunas
+    cols_contrato_desejadas = ["Corretora", "Cliente", "Conta", "Status", "Situação", "Carteira", "Observações"]
+    
+    # Identifica as colunas restantes (que vieram da posição)
+    colunas_atuais = [c for c in df_excel.columns if c != "Conta_Limpa"]
+    cols_extras = [c for c in colunas_atuais if c not in cols_contrato_desejadas]
+    
+    # Monta a nova ordem com as colunas de contrato primeiro
+    cols_ordenadas = [c for c in cols_contrato_desejadas if c in colunas_atuais] + cols_extras
+    df_export = df_excel[cols_ordenadas]
 
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
@@ -225,7 +236,6 @@ def carregar_dados():
             if col_conta_btg in posicao.columns:
                 posicao["Conta_Limpa"] = limpar_conta(posicao[col_conta_btg])
 
-                # Criação da Base com colunas do contrato anexadas
                 df_contratos_btg_ref = df_btg[cols_btg].copy()
                 df_contratos_btg_ref["Conta_Limpa"] = limpar_conta(df_contratos_btg_ref["Conta"])
                 base_pos_btg = posicao.merge(df_contratos_btg_ref.drop(columns=["Conta"], errors="ignore"), on="Conta_Limpa", how="left")
@@ -356,7 +366,6 @@ def carregar_dados():
                         df_aba["Conta_Limpa"] = limpar_conta(df_aba[col_conta_xp])
                         df_aba["Aba_Posicao"] = aba_nome
 
-                        # Merge com colunas de contrato para a base
                         df_aba_base = df_aba.merge(df_contratos_xp_ref.drop(columns=["Conta"], errors="ignore"), on="Conta_Limpa", how="left")
                         dfs_base_xp.append(df_aba_base)
 
@@ -961,45 +970,60 @@ if not contratos_df.empty:
 
     elif corretora_selecionada == "Base":
         # =========================================================================
-        # SEÇÃO BASE (POSIÇÕES BRUTAS BTG & XP COM COLUNAS DE CONTRATO ANEXADAS)
+        # SEÇÃO BASE (BTG e XP em sequência, com colunas de contrato nas primeiras posições)
         # =========================================================================
         st.subheader("📋 Base Consolidada - Posições Brutas com Dados de Contrato")
 
         st.markdown(
-            "Selecione abaixo a corretora para visualizar e baixar os arquivos brutos de posição "
-            "com as colunas do Controle de Contratos integradas por conta."
+            "Abaixo estão disponíveis as planilhas unificadas com as colunas do Controle de Contratos "
+            "posicionadas nas primeiras colunas, seguindo a ordem solicitada (Primeiro BTG, Depois XP)."
         )
 
-        sub_aba_base = st.radio("Escolha a Corretora da Base", ["BTG", "XP"], horizontal=True)
+        cols_contrato_desejadas = ["Corretora", "Cliente", "Conta", "Status", "Situação", "Carteira", "Observações"]
 
-        if sub_aba_base == "BTG":
-            if not base_pos_btg.empty:
-                df_base_btg_exibir = base_pos_btg.drop(columns=["Conta_Limpa"], errors="ignore")
-                st.metric("Total de Registros (Posição BTG + Contratos)", len(df_base_btg_exibir))
-                st.dataframe(df_base_btg_exibir, use_container_width=True)
+        # --- SEÇÃO BTG NA BASE ---
+        st.markdown("### 🔵 Posição Bruta BTG + Contratos")
+        if not base_pos_btg.empty:
+            df_base_btg_exibir = base_pos_btg.drop(columns=["Conta_Limpa"], errors="ignore")
+            cols_atuais_btg = [c for c in df_base_btg_exibir.columns]
+            cols_extras_btg = [c for c in cols_atuais_btg if c not in cols_contrato_desejadas]
+            cols_ordenadas_btg = [c for c in cols_contrato_desejadas if c in cols_atuais_btg] + cols_extras_btg
+            df_base_btg_exibir = df_base_btg_exibir[cols_ordenadas_btg]
 
-                st.download_button(
-                    label="📥 Baixar Posição Bruta BTG com Contratos em Excel",
-                    data=gerar_excel_base(base_pos_btg),
-                    file_name="base_posicao_btg_com_contratos.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )
-            else:
-                st.warning("Nenhum dado de posição BTG encontrado para mesclar.")
+            st.metric("Total de Registros (BTG)", len(df_base_btg_exibir))
+            st.dataframe(df_base_btg_exibir, use_container_width=True)
+
+            st.download_button(
+                label="📥 Baixar Planilha Base BTG em Excel",
+                data=gerar_excel_base(base_pos_btg),
+                file_name="base_posicao_btg_com_contratos.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
         else:
-            if not base_pos_xp.empty:
-                df_base_xp_exibir = base_pos_xp.drop(columns=["Conta_Limpa"], errors="ignore")
-                st.metric("Total de Registros (Posição XP + Contratos)", len(df_base_xp_exibir))
-                st.dataframe(df_base_xp_exibir, use_container_width=True)
+            st.warning("Nenhum dado de posição BTG encontrado.")
 
-                st.download_button(
-                    label="📥 Baixar Posição Bruta XP com Contratos em Excel",
-                    data=gerar_excel_base(base_pos_xp),
-                    file_name="base_posicao_xp_com_contratos.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )
-            else:
-                st.warning("Nenhum dado de posição XP encontrado para mesclar.")
+        st.markdown("---")
+
+        # --- SEÇÃO XP NA BASE ---
+        st.markdown("### 🟡 Posição Bruta XP + Contratos")
+        if not base_pos_xp.empty:
+            df_base_xp_exibir = base_pos_xp.drop(columns=["Conta_Limpa"], errors="ignore")
+            cols_atuais_xp = [c for c in df_base_xp_exibir.columns]
+            cols_extras_xp = [c for c in cols_atuais_xp if c not in cols_contrato_desejadas]
+            cols_ordenadas_xp = [c for c in cols_contrato_desejadas if c in cols_atuais_xp] + cols_extras_xp
+            df_base_xp_exibir = df_base_xp_exibir[cols_ordenadas_xp]
+
+            st.metric("Total de Registros (XP)", len(df_base_xp_exibir))
+            st.dataframe(df_base_xp_exibir, use_container_width=True)
+
+            st.download_button(
+                label="📥 Baixar Planilha Base XP em Excel",
+                data=gerar_excel_base(base_pos_xp),
+                file_name="base_posicao_xp_com_contratos.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
+        else:
+            st.warning("Nenhum dado de posição XP encontrado.")
 
 else:
     st.warning("Nenhum dado encontrado. Verifique se os arquivos Excel estão na pasta.")
