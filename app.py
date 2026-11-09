@@ -52,36 +52,37 @@ def limpar_coluna_numerica(serie):
         )
     return pd.to_numeric(serie, errors="coerce").fillna(0)
 
-def preparar_df_para_excel(df_exibir, colunas_posicao, pos_pivot_ref):
-    """Prepara e estiliza o DataFrame para o Excel utilizando a mesma base exibida no dashboard."""
-    df_excel = df_exibir.copy()
+def gerar_excel_corretora(df_view_base, colunas_posicao, pos_pivot):
+    """Gera o Excel formatado especificamente para a corretora utilizando os dados numéricos crus."""
+    df_excel = df_view_base.copy()
     
-    # Se a tabela de exibição não contiver as colunas de posição numéricas, faz o merge com a pivot original
-    if colunas_posicao and not all(c in df_excel.columns for c in colunas_posicao):
-        if "Conta" in df_excel.columns and not "Conta_Limpa" in df_excel.columns:
-            df_excel["Conta_Limpa"] = limpar_conta(df_excel["Conta"])
-        if not pos_pivot_ref.empty and "Conta_Limpa" in df_excel.columns:
-            df_excel = df_excel.merge(pos_pivot_ref, on="Conta_Limpa", how="left")
+    # Garante Conta_Limpa na base
+    if "Conta" in df_excel.columns and "Conta_Limpa" not in df_excel.columns:
+        df_excel["Conta_Limpa"] = limpar_conta(df_excel["Conta"])
 
-    # Converte colunas de posição para numérico se estiverem formatadas como string (R$)
+    # Faz o merge com a pivot numérica original da corretora
+    if not pos_pivot.empty and "Conta_Limpa" in df_excel.columns:
+        df_excel = df_excel.merge(pos_pivot, on="Conta_Limpa", how="left")
+
+    # Assegura que todas as colunas de posição são numéricas
     for col in colunas_posicao:
         if col in df_excel.columns:
-            df_excel[col] = df_excel[col].apply(lambda x: limpar_coluna_numerica(pd.Series([x]))[0] if isinstance(x, str) else (0 if pd.isna(x) else x))
+            df_excel[col] = pd.to_numeric(df_excel[col], errors="coerce").fillna(0.0)
         else:
             df_excel[col] = 0.0
 
-    # Calcula o PL Total somando todas as colunas de posição
+    # Calcula o PL Total com base numérica real
     cols_existentes_pos = [c for c in colunas_posicao if c in df_excel.columns]
     df_excel["PL Total"] = df_excel[cols_existentes_pos].sum(axis=1)
 
-    # Calcula os percentuais (%) para cada coluna de posição
+    # Calcula as colunas percentuais (%)
     for col in cols_existentes_pos:
         col_nome_perc = f"{col} %"
         df_excel[col_nome_perc] = df_excel.apply(
             lambda r: (r[col] / r["PL Total"]) if r["PL Total"] > 0 else 0.0, axis=1
         )
 
-    # Organiza a coluna PL Total logo após Observações
+    # Posiciona PL Total logo após Observações
     cols = list(df_excel.columns)
     if "Observações" in cols:
         idx_obs = cols.index("Observações")
@@ -90,7 +91,7 @@ def preparar_df_para_excel(df_exibir, colunas_posicao, pos_pivot_ref):
             cols.insert(idx_obs + 1, "PL Total")
         df_excel = df_excel[cols]
 
-    # Remove colunas auxiliares indesejadas da exportação
+    # Remove colunas auxiliares
     df_export = df_excel.drop(columns=["Conta_Limpa"], errors="ignore")
 
     output = io.BytesIO()
@@ -481,9 +482,10 @@ if not contratos_df.empty:
 
         st.dataframe(df_exibir_btg, use_container_width=True)
 
+        # Botão de download BTG segregado
         st.download_button(
             label="📥 Baixar Planilha BTG em Excel (com PL Total e %)",
-            data=preparar_df_para_excel(df_exibir_btg, colunas_posicao, btg_pos_pivot),
+            data=gerar_excel_corretora(df_btg_view, colunas_posicao, btg_pos_pivot),
             file_name="posicao_contratos_btg.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
@@ -743,9 +745,10 @@ if not contratos_df.empty:
 
         st.dataframe(df_exibir_xp, use_container_width=True)
 
+        # Botão de download XP segregado
         st.download_button(
             label="📥 Baixar Planilha XP em Excel (com PL Total e %)",
-            data=preparar_df_para_excel(df_exibir_xp, colunas_posicao_xp, xp_pos_pivot),
+            data=gerar_excel_corretora(df_xp_view, colunas_posicao_xp, xp_pos_pivot),
             file_name="posicao_contratos_xp.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
