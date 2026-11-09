@@ -5,6 +5,8 @@ import streamlit as st
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 import plotly.express as px
+import openpyxl
+from openpyxl.styles import Font, Alignment, Border, Side
 
 st.set_page_config(
     page_title="Dashboard Bluemetrix - Posição e Contratos",
@@ -51,10 +53,9 @@ def limpar_coluna_numerica(serie):
     return pd.to_numeric(serie, errors="coerce").fillna(0)
 
 def preparar_df_para_excel(df_view_original, colunas_posicao, pos_pivot_ref):
-    """Prepara o DataFrame para o Excel adicionando PL Total e colunas de % de peso a partir da base original com Conta_Limpa."""
+    """Prepara e estiliza o DataFrame para o Excel com formatação financeira, %, centralização e cabeçalho sublinhado."""
     df_excel = df_view_original.copy()
     
-    # Faz o merge usando a base que possui a Conta_Limpa para resgatar os valores numéricos originais
     if not pos_pivot_ref.empty and "Conta_Limpa" in df_excel.columns:
         df_merged_raw = df_excel.merge(pos_pivot_ref, on="Conta_Limpa", how="left")
         for col in colunas_posicao:
@@ -63,18 +64,15 @@ def preparar_df_para_excel(df_view_original, colunas_posicao, pos_pivot_ref):
             else:
                 df_excel[col] = 0
             
-    # Soma todas as colunas de posição para obter o PL Total
     cols_existentes_pos = [c for c in colunas_posicao if c in df_excel.columns]
     df_excel["PL Total"] = df_excel[cols_existentes_pos].sum(axis=1)
     
-    # Calcula os pesos (%) para cada coluna de posição
     for col in cols_existentes_pos:
         col_nome_perc = f"{col} %"
         df_excel[col_nome_perc] = df_excel.apply(
             lambda r: (r[col] / r["PL Total"]) if r["PL Total"] > 0 else 0.0, axis=1
         )
 
-    # Reorganiza as colunas colocando o PL Total logo após Observações (se existir)
     cols = list(df_excel.columns)
     if "Observações" in cols:
         idx_obs = cols.index("Observações")
@@ -83,13 +81,56 @@ def preparar_df_para_excel(df_view_original, colunas_posicao, pos_pivot_ref):
             cols.insert(idx_obs + 1, "PL Total")
         df_excel = df_excel[cols]
 
-    # Remove Conta_Limpa da exportação final se desejar manter igual à tela
+    # Remove Conta_Limpa explicitamente da exportação em Excel
     df_export = df_excel.drop(columns=["Conta_Limpa"], errors="ignore")
 
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
         df_export.to_excel(writer, index=False, sheet_name="Consolidado")
-    return output.getvalue()
+    
+    output.seek(0)
+    wb = openpyxl.load_workbook(output)
+    ws = wb.active
+
+    # Localiza a coluna "Observações"
+    obs_col_idx = None
+    for col_idx in range(1, ws.max_column + 1):
+        if ws.cell(row=1, column=col_idx).value == "Observações":
+            obs_col_idx = col_idx
+            break
+
+    # Estilização do Cabeçalho (Linha 1): Negrito e Sublinhado
+    font_header = Font(name="Calibri", size=11, bold=True)
+    border_bottom = Border(bottom=Side(style="medium", color="000000"))
+    
+    for col_idx in range(1, ws.max_column + 1):
+        cell = ws.cell(row=1, column=col_idx)
+        cell.font = font_header
+        cell.border = border_bottom
+        if obs_col_idx and col_idx > obs_col_idx:
+            cell.alignment = Alignment(horizontal="center", vertical="center")
+        else:
+            cell.alignment = Alignment(horizontal="left", vertical="center")
+
+    # Formatação das linhas de dados
+    for row_idx in range(2, ws.max_row + 1):
+        for col_idx in range(1, ws.max_column + 1):
+            cell = ws.cell(row=row_idx, column=col_idx)
+            header_val = str(ws.cell(row=1, column=col_idx).value)
+            
+            if obs_col_idx and col_idx > obs_col_idx:
+                cell.alignment = Alignment(horizontal="center", vertical="center")
+
+            # Formato financeiro para PL Total e valores absolutos
+            if header_val == "PL Total" or header_val in colunas_posicao:
+                cell.number_format = 'R$ #,##0.00'
+            # Formato percentual para as colunas de peso (%)
+            elif header_val.endswith("%"):
+                cell.number_format = '0.00%'
+
+    final_output = io.BytesIO()
+    wb.save(final_output)
+    return final_output.getvalue()
 
 # =========================
 # CARREGAR E PROCESSAR DADOS (COM CACHE INTELIGENTE)
@@ -433,9 +474,13 @@ if not contratos_df.empty:
                 if col in df_exibir_btg.columns:
                     df_exibir_btg[col] = df_exibir_btg[col].apply(formatar_real)
 
+        # Remove Conta_Limpa da exibição no dashboard
+        if "Conta_Limpa" in df_exibir_btg.columns:
+            df_exibir_btg = df_exibir_btg.drop(columns=["Conta_Limpa"])
+
         st.dataframe(df_exibir_btg, use_container_width=True)
 
-        # Botão para baixar planilha BTG em Excel usando a base com Conta_Limpa intacta
+        # Botão para baixar planilha BTG em Excel sem a coluna Conta_Limpa
         st.download_button(
             label="📥 Baixar Planilha BTG em Excel (com PL Total e %)",
             data=preparar_df_para_excel(df_btg_view, colunas_posicao, btg_pos_pivot),
@@ -700,9 +745,13 @@ if not contratos_df.empty:
                 if col in df_exibir_xp.columns:
                     df_exibir_xp[col] = df_exibir_xp[col].apply(formatar_real)
 
+        # Remove Conta_Limpa da exibição no dashboard
+        if "Conta_Limpa" in df_exibir_xp.columns:
+            df_exibir_xp = df_exibir_xp.drop(columns=["Conta_Limpa"])
+
         st.dataframe(df_exibir_xp, use_container_width=True)
 
-        # Botão para baixar planilha XP em Excel usando a base com Conta_Limpa intacta
+        # Botão para baixar planilha XP em Excel sem a coluna Conta_Limpa
         st.download_button(
             label="📥 Baixar Planilha XP em Excel (com PL Total e %)",
             data=preparar_df_para_excel(df_xp_view, colunas_posicao_xp, xp_pos_pivot),
