@@ -1,4 +1,5 @@
 import os
+import io
 import pandas as pd
 import streamlit as st
 import matplotlib.pyplot as plt
@@ -48,6 +49,13 @@ def limpar_coluna_numerica(serie):
             .str.strip()
         )
     return pd.to_numeric(serie, errors="coerce").fillna(0)
+
+def converter_para_excel(df):
+    """Converte um DataFrame para bytes em formato Excel (.xlsx) para download."""
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+        df.to_excel(writer, index=False, sheet_name="Consolidado")
+    return output.getvalue()
 
 # =========================
 # CARREGAR E PROCESSAR DADOS (COM CACHE INTELIGENTE)
@@ -396,6 +404,15 @@ if not contratos_df.empty:
 
         st.dataframe(df_exibir_btg, use_container_width=True)
 
+        # Botão para baixar planilha BTG em Excel logo abaixo da tabela
+        st.download_button(
+            label="📥 Baixar Planilha BTG em Excel",
+            data=converter_para_excel(df_exibir_btg),
+            file_name="posicao_contratos_btg.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+        st.markdown("---")
+
         if colunas_posicao:
             st.markdown("### 📊 Consolidado de Valor Bruto por Mercado/Produto (BTG)")
             soma_posicoes = df_btg_view_pos[colunas_posicao].sum() / 1e6
@@ -481,7 +498,6 @@ if not contratos_df.empty:
                 # =========================================================
                 st.markdown("### 📉 Gráfico de Dispersão - Descolamento das Aplicações (BTG)")
                 
-                # Base completa filtrada apenas pelos 3 primeiros filtros globais para mostrar todas as carteiras e contas ativas
                 df_disp_btg = btg_pos_pivot.merge(df_base_corretora[["Conta_Limpa", "Carteira", "Status", "Cliente"]], on="Conta_Limpa", how="inner")
                 if status_selecionados:
                     df_disp_btg = df_disp_btg[df_disp_btg["Status"].astype(str).isin(status_selecionados)]
@@ -500,7 +516,6 @@ if not contratos_df.empty:
                     df_melt_btg = df_melt_btg[df_melt_btg["Valor_Aplicado"] > 0]
 
                     if not df_melt_btg.empty:
-                        # Média geral de cada tipo de aplicação considerando todas as carteiras visíveis
                         media_geral_aplicacao = df_melt_btg.groupby("Tipo_Aplicacao")["Valor_Aplicado"].mean().reset_index()
                         media_geral_aplicacao.rename(columns={"Valor_Aplicado": "Media_Geral"}, inplace=True)
                         
@@ -658,6 +673,15 @@ if not contratos_df.empty:
             df_exibir_xp = df_exibir_xp.drop(columns=["Conta_Limpa"])
 
         st.dataframe(df_exibir_xp, use_container_width=True)
+
+        # Botão para baixar planilha XP em Excel logo abaixo da tabela
+        st.download_button(
+            label="📥 Baixar Planilha XP em Excel",
+            data=converter_para_excel(df_exibir_xp),
+            file_name="posicao_contratos_xp.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+        st.markdown("---")
 
         if colunas_posicao_xp:
             st.markdown("### 📊 Consolidado por Abas/Produtos (XP)")
