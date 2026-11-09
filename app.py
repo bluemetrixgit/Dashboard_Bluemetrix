@@ -50,24 +50,26 @@ def limpar_coluna_numerica(serie):
         )
     return pd.to_numeric(serie, errors="coerce").fillna(0)
 
-def preparar_df_para_excel(df_view, colunas_posicao, btg_pos_pivot_ref):
-    """Prepara o DataFrame para o Excel adicionando PL Total e colunas de % de peso."""
-    df_excel = df_view.copy()
+def preparar_df_para_excel(df_view_original, colunas_posicao, pos_pivot_ref):
+    """Prepara o DataFrame para o Excel adicionando PL Total e colunas de % de peso a partir da base original com Conta_Limpa."""
+    df_excel = df_view_original.copy()
     
-    # Garante as posições numéricas originais para cálculo
-    if not btg_pos_pivot_ref.empty:
-        # Pega do pivot bruto para somar e tirar percentuais exatos
-        df_merged_raw = df_view.merge(btg_pos_pivot_ref, on="Conta_Limpa", how="left")
+    # Faz o merge usando a base que possui a Conta_Limpa para resgatar os valores numéricos originais
+    if not pos_pivot_ref.empty and "Conta_Limpa" in df_excel.columns:
+        df_merged_raw = df_excel.merge(pos_pivot_ref, on="Conta_Limpa", how="left")
         for col in colunas_posicao:
-            df_excel[col] = df_merged_raw[col].fillna(0)
+            if col in df_merged_raw.columns:
+                df_excel[col] = df_merged_raw[col].fillna(0)
+            else:
+                df_excel[col] = 0
             
     # Soma todas as colunas de posição para obter o PL Total
-    df_excel["PL Total"] = df_excel[colunas_posicao].sum(axis=1)
+    cols_existentes_pos = [c for c in colunas_posicao if c in df_excel.columns]
+    df_excel["PL Total"] = df_excel[cols_existentes_pos].sum(axis=1)
     
     # Calcula os pesos (%) para cada coluna de posição
-    for col in colunas_posicao:
+    for col in cols_existentes_pos:
         col_nome_perc = f"{col} %"
-        # Evita divisão por zero
         df_excel[col_nome_perc] = df_excel.apply(
             lambda r: (r[col] / r["PL Total"]) if r["PL Total"] > 0 else 0.0, axis=1
         )
@@ -76,19 +78,17 @@ def preparar_df_para_excel(df_view, colunas_posicao, btg_pos_pivot_ref):
     cols = list(df_excel.columns)
     if "Observações" in cols:
         idx_obs = cols.index("Observações")
-        # Remove PL Total e insere após Observações
         if "PL Total" in cols:
             cols.remove("PL Total")
             cols.insert(idx_obs + 1, "PL Total")
         df_excel = df_excel[cols]
 
-    # Formata PL Total para Real e as colunas % para formato percentual do excel
+    # Remove Conta_Limpa da exportação final se desejar manter igual à tela
+    df_export = df_excel.drop(columns=["Conta_Limpa"], errors="ignore")
+
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
-        df_export = df_excel.drop(columns=["Conta_Limpa"], errors="ignore")
         df_export.to_excel(writer, index=False, sheet_name="Consolidado")
-        
-        # Opcional: formatação de células numéricas no openpyxl se necessário
     return output.getvalue()
 
 # =========================
@@ -433,15 +433,12 @@ if not contratos_df.empty:
                 if col in df_exibir_btg.columns:
                     df_exibir_btg[col] = df_exibir_btg[col].apply(formatar_real)
 
-        if "Conta_Limpa" in df_exibir_btg.columns:
-            df_exibir_btg = df_exibir_btg.drop(columns=["Conta_Limpa"])
-
         st.dataframe(df_exibir_btg, use_container_width=True)
 
-        # Botão para baixar planilha BTG em Excel com PL Total e colunas de %
+        # Botão para baixar planilha BTG em Excel usando a base com Conta_Limpa intacta
         st.download_button(
             label="📥 Baixar Planilha BTG em Excel (com PL Total e %)",
-            data=preparar_df_para_excel(df_exibir_btg, colunas_posicao, btg_pos_pivot),
+            data=preparar_df_para_excel(df_btg_view, colunas_posicao, btg_pos_pivot),
             file_name="posicao_contratos_btg.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
@@ -703,15 +700,12 @@ if not contratos_df.empty:
                 if col in df_exibir_xp.columns:
                     df_exibir_xp[col] = df_exibir_xp[col].apply(formatar_real)
 
-        if "Conta_Limpa" in df_exibir_xp.columns:
-            df_exibir_xp = df_exibir_xp.drop(columns=["Conta_Limpa"])
-
         st.dataframe(df_exibir_xp, use_container_width=True)
 
-        # Botão para baixar planilha XP em Excel com PL Total e colunas de %
+        # Botão para baixar planilha XP em Excel usando a base com Conta_Limpa intacta
         st.download_button(
             label="📥 Baixar Planilha XP em Excel (com PL Total e %)",
-            data=preparar_df_para_excel(df_exibir_xp, colunas_posicao_xp, xp_pos_pivot),
+            data=preparar_df_para_excel(df_xp_view, colunas_posicao_xp, xp_pos_pivot),
             file_name="posicao_contratos_xp.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
